@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"os"
 	"time"
+
+	firebaseClient "github.com/AQADIL/JudGO/pkg/client/firebase"
 )
 
 func main() {
@@ -13,6 +15,12 @@ func main() {
 
 	log.Println("[INIT] Loading configuration...")
 	log.Println("[INIT] Connecting to Firebase RTDB...")
+	db, err := firebaseClient.InitDB("config/serviceAccountKey.json", "https://judgo-2726f-default-rtdb.europe-west1.firebasedatabase.app/")
+	if err != nil {
+		log.Fatalf("[ERROR] Unable to init Firebase: %v", err)
+	}
+	_ = db
+	log.Println("Connected to Firebase")
 	log.Println("[INIT] Initializing Repository, Service, and Transport layers...")
 
 	port := "8080"
