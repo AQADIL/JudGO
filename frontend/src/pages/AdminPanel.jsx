@@ -8,13 +8,14 @@ import { useEffect, useMemo, useState } from 'react'
 import toast from 'react-hot-toast'
 import { GlassCard } from '../components/GlassCard'
 import { BrandMark } from '../components/BrandMark'
-import { adminProblems, adminUsers, adminUserStats, createAdminProblem } from '../services/api'
+import { adminProblems, adminUsers, adminUserStats, adminUserSubmissions, createAdminProblem } from '../services/api'
 
 const ITEMS_PER_PAGE = 10
 
 export function AdminPanel() {
   const [users, setUsers] = useState([])
   const [userStats, setUserStats] = useState([])
+  const [userSubmissions, setUserSubmissions] = useState([])
   const [problems, setProblems] = useState([])
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
@@ -26,23 +27,17 @@ export function AdminPanel() {
   const [userSearch, setUserSearch] = useState('')
   const [problemSearch, setProblemSearch] = useState('')
   const [difficultyFilter, setDifficultyFilter] = useState('ALL')
-  const [statusFilter, setStatusFilter] = useState('ALL')
 
   const [addOpen, setAddOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [pId, setPId] = useState('')
   const [pTitle, setPTitle] = useState('')
   const [pStatement, setPStatement] = useState('')
-  const [pInputFormat, setPInputFormat] = useState('')
-  const [pOutputFormat, setPOutputFormat] = useState('')
   const [pDifficulty, setPDifficulty] = useState('EASY')
   const [pStatus, setPStatus] = useState('DRAFT')
-  const [pTags, setPTags] = useState('')
-  const [starterGo, setStarterGo] = useState('')
-  const [starterPy, setStarterPy] = useState('')
-  const [testCases, setTestCases] = useState([{ input: '', output: '', isHidden: false }])
 
   const [selectedUser, setSelectedUser] = useState(null)
+  const [selectedUserTab, setSelectedUserTab] = useState('solved') // 'solved' | 'all'
 
   const statusColors = {
     Active: 'text-green-400',
@@ -69,8 +64,12 @@ export function AdminPanel() {
     const totalProblems = problems.length
     const publishedProblems = problems.filter(p => p.status === 'PUBLISHED').length
     const draftProblems = problems.filter(p => p.status === 'DRAFT').length
-    const totalSubmissions = problems.reduce((sum, p) => sum + (Number(p.submissions) || 0), 0)
     const admins = users.filter(u => u.role === 'ADMIN').length
+    
+    // Calculate total submissions from actual practice data
+    const totalSubmissions = userStats.reduce((sum, s) => sum + (s.totalSubmissions || 0), 0)
+    const totalSolved = userStats.reduce((sum, s) => sum + (s.solvedCount || 0), 0)
+    const totalPassed = userStats.reduce((sum, s) => sum + (s.passedCount || 0), 0)
     
     const problemsByDifficulty = {
       EASY: problems.filter(p => p.difficulty === 'EASY').length,
@@ -84,10 +83,12 @@ export function AdminPanel() {
       publishedProblems,
       draftProblems,
       totalSubmissions,
+      totalSolved,
+      totalPassed,
       admins,
       problemsByDifficulty,
     }
-  }, [users, problems])
+  }, [users, problems, userStats])
 
   const filteredUsers = useMemo(() => {
     return users.filter(u => {
@@ -111,10 +112,9 @@ export function AdminPanel() {
       const titleMatch = (p.title || '').toLowerCase().includes(searchLower)
       const idMatch = (p.id || '').toLowerCase().includes(searchLower)
       const difficultyMatch = difficultyFilter === 'ALL' || p.difficulty === difficultyFilter
-      const statusMatch = statusFilter === 'ALL' || p.status === statusFilter
-      return (titleMatch || idMatch) && difficultyMatch && statusMatch
+      return (titleMatch || idMatch) && difficultyMatch
     })
-  }, [problems, problemSearch, difficultyFilter, statusFilter])
+  }, [problems, problemSearch, difficultyFilter])
 
   const paginatedProblems = useMemo(() => {
     const start = (problemPage - 1) * ITEMS_PER_PAGE
@@ -154,43 +154,19 @@ export function AdminPanel() {
     return () => { cancelled = true }
   }, [])
 
-  const trimRight = (s) => String(s || '').replace(/[\s\n\r\t]+$/g, '')
-
-  const onAddTestCase = () => {
-    setTestCases((prev) => [...prev, { input: '', output: '', isHidden: false }])
-  }
-
-  const onRemoveTestCase = (idx) => {
-    setTestCases((prev) => prev.filter((_, i) => i !== idx))
-  }
-
   const onSaveProblem = async () => {
     setError('')
     setSaving(true)
     try {
-      const tags = String(pTags || '')
-        .split(',')
-        .map((t) => t.trim())
-        .filter(Boolean)
-
       const payload = {
         id: String(pId || '').trim(),
         title: String(pTitle || '').trim(),
         statement: String(pStatement || ''),
-        inputFormat: String(pInputFormat || ''),
-        outputFormat: String(pOutputFormat || ''),
         difficulty: pDifficulty,
-        tags,
         status: pStatus,
-        starterCode: {
-          go: String(starterGo || ''),
-          py: String(starterPy || ''),
-        },
-        testCases: (testCases || []).map((tc) => ({
-          input: trimRight(tc.input),
-          output: trimRight(tc.output),
-          isHidden: !!tc.isHidden,
-        })),
+        tags: [],
+        starterCode: { go: '', py: '' },
+        testCases: [],
       }
 
       const created = await createAdminProblem(payload)
@@ -201,14 +177,8 @@ export function AdminPanel() {
       setPId('')
       setPTitle('')
       setPStatement('')
-      setPInputFormat('')
-      setPOutputFormat('')
       setPDifficulty('EASY')
       setPStatus('DRAFT')
-      setPTags('')
-      setStarterGo('')
-      setStarterPy('')
-      setTestCases([{ input: '', output: '', isHidden: false }])
     } catch (e) {
       setError(e?.message || 'Failed to save problem')
       toast.error(e?.message || 'Failed to save problem')
@@ -218,15 +188,15 @@ export function AdminPanel() {
   }
 
   const StatCard = ({ title, value, icon: Icon, color, subtitle }) => (
-    <GlassCard className="p-6">
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="text-frost-200 text-sm">{title}</p>
-          <p className="text-3xl font-bold text-frost-50 mt-2">{value}</p>
-          {subtitle && <p className="text-xs text-frost-300 mt-1">{subtitle}</p>}
+    <GlassCard className="p-3">
+      <div className="flex items-center gap-3">
+        <div className={`p-2 rounded-lg ${color}`}>
+          <Icon className="h-4 w-4 text-frost-50" />
         </div>
-        <div className={`p-3 rounded-lg ${color}`}>
-          <Icon className="h-5 w-5 text-frost-50" />
+        <div>
+          <p className="text-frost-200 text-xs">{title}</p>
+          <p className="text-xl font-bold text-frost-50">{value}</p>
+          {subtitle && <p className="text-[10px] text-frost-400">{subtitle}</p>}
         </div>
       </div>
     </GlassCard>
@@ -236,37 +206,49 @@ export function AdminPanel() {
     if (totalPages <= 1) return null
     
     return (
-      <div className="flex items-center justify-center gap-2 mt-6">
+      <div className="flex items-center justify-center gap-1 mt-4">
         <button
           onClick={() => onPageChange(Math.max(1, currentPage - 1))}
           disabled={currentPage === 1}
-          className="p-2 rounded-lg glass disabled:opacity-50 disabled:cursor-not-allowed"
+          className="p-1.5 rounded-lg glass disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          <ChevronLeft className="h-4 w-4" />
+          <ChevronLeft className="h-3.5 w-3.5" />
         </button>
         
-        <div className="flex items-center gap-1">
-          {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
-            <button
-              key={page}
-              onClick={() => onPageChange(page)}
-              className={`w-8 h-8 rounded-lg text-sm font-medium transition-all ${
-                currentPage === page
-                  ? 'bg-accent-steel text-frost-50'
-                  : 'glass hover:bg-white/10'
-              }`}
-            >
-              {page}
-            </button>
-          ))}
+        <div className="flex items-center gap-0.5">
+          {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+            let pageNum
+            if (totalPages <= 5) {
+              pageNum = i + 1
+            } else if (currentPage <= 3) {
+              pageNum = i + 1
+            } else if (currentPage >= totalPages - 2) {
+              pageNum = totalPages - 4 + i
+            } else {
+              pageNum = currentPage - 2 + i
+            }
+            return (
+              <button
+                key={pageNum}
+                onClick={() => onPageChange(pageNum)}
+                className={`w-7 h-7 rounded-lg text-xs font-medium transition-all ${
+                  currentPage === pageNum
+                    ? 'bg-accent-steel text-frost-50'
+                    : 'glass hover:bg-white/10'
+                }`}
+              >
+                {pageNum}
+              </button>
+            )
+          })}
         </div>
         
         <button
           onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))}
           disabled={currentPage === totalPages}
-          className="p-2 rounded-lg glass disabled:opacity-50 disabled:cursor-not-allowed"
+          className="p-1.5 rounded-lg glass disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          <ChevronRight className="h-4 w-4" />
+          <ChevronRight className="h-3.5 w-3.5" />
         </button>
       </div>
     )
@@ -282,15 +264,15 @@ export function AdminPanel() {
 
   return (
     <div className="min-h-screen pb-20">
-      <header className="container-page pt-6 pb-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
+      <header className="container-page pt-4 pb-2">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
             <BrandMark />
-            <div className="h-6 w-px bg-white/20" />
-            <h1 className="text-xl font-semibold text-frost-50">Admin Dashboard</h1>
+            <div className="h-5 w-px bg-white/20" />
+            <h1 className="text-lg font-semibold text-frost-50">Admin</h1>
           </div>
           
-          <div className="flex items-center gap-1 p-1 glass rounded-lg">
+          <div className="flex items-center gap-1 p-1 glass rounded-lg overflow-x-auto max-w-full">
             {[
               { id: 'overview', label: 'Overview', icon: BarChart3 },
               { id: 'users', label: 'Users', icon: Users },
@@ -299,13 +281,13 @@ export function AdminPanel() {
               <button
                 key={id}
                 onClick={() => setActiveTab(id)}
-                className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all whitespace-nowrap ${
                   activeTab === id
                     ? 'bg-accent-steel/30 text-frost-50'
                     : 'text-frost-300 hover:text-frost-100'
                 }`}
               >
-                <Icon className="h-4 w-4" />
+                <Icon className="h-3.5 w-3.5" />
                 {label}
               </button>
             ))}
@@ -323,31 +305,38 @@ export function AdminPanel() {
               exit={{ opacity: 0, y: -20 }}
               className="space-y-6"
             >
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+              <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
                 <StatCard
-                  title="Total Users"
+                  title="Users"
                   value={stats.totalUsers}
                   icon={Users}
                   color="bg-blue-500/20"
                   subtitle={`${stats.admins} admins`}
                 />
                 <StatCard
-                  title="Total Problems"
+                  title="Problems"
                   value={stats.totalProblems}
                   icon={FileText}
                   color="bg-purple-500/20"
-                  subtitle={`${stats.publishedProblems} published`}
+                  subtitle={`${stats.publishedProblems} pub`}
                 />
                 <StatCard
-                  title="Total Submissions"
+                  title="Submissions"
                   value={stats.totalSubmissions}
                   icon={Activity}
                   color="bg-green-500/20"
+                  subtitle={`${stats.totalPassed} passed`}
                 />
                 <StatCard
-                  title="Draft Problems"
-                  value={stats.draftProblems}
+                  title="Solved"
+                  value={stats.totalSolved}
                   icon={Code2}
+                  color="bg-cyan-500/20"
+                />
+                <StatCard
+                  title="Drafts"
+                  value={stats.draftProblems}
+                  icon={BarChart3}
                   color="bg-yellow-500/20"
                 />
               </div>
@@ -457,7 +446,17 @@ export function AdminPanel() {
                             </span>
                           </td>
                           <td className="py-3 px-2 text-sm text-frost-100">
-                            {Number(problem.submissions) || 0}
+                            {(() => {
+                              // Calculate actual submissions per problem from userStats
+                              const problemSubs = userStats.reduce((sum, u) => {
+                                if (u.solvedProblems) {
+                                  const solved = u.solvedProblems.find(sp => sp.problemId === problem.id)
+                                  if (solved) return sum + (solved.attemptsToSolve || 1)
+                                }
+                                return sum
+                              }, 0)
+                              return problemSubs || Number(problem.submissions) || 0
+                            })()}
                           </td>
                         </motion.tr>
                       ))}
@@ -474,23 +473,65 @@ export function AdminPanel() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
-              className="space-y-4"
+              className="space-y-3"
             >
-              <div className="flex items-center justify-between">
-                <h2 className="text-xl font-semibold text-frost-50">User Management</h2>
-                <div className="glass px-4 py-2 flex items-center gap-2">
-                  <Search className="h-4 w-4 text-frost-300" />
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+                <h2 className="text-lg font-semibold text-frost-50">Users ({filteredUsers.length})</h2>
+                <div className="glass px-3 py-1.5 flex items-center gap-2 w-full sm:w-auto">
+                  <Search className="h-3.5 w-3.5 text-frost-300" />
                   <input
                     type="text"
-                    placeholder="Search users..."
+                    placeholder="Search..."
                     value={userSearch}
                     onChange={(e) => { setUserSearch(e.target.value); setUserPage(1) }}
-                    className="bg-transparent outline-none text-frost-100 placeholder-frost-300 w-64"
+                    className="bg-transparent outline-none text-frost-100 placeholder-frost-300 text-sm w-full sm:w-48"
                   />
                 </div>
               </div>
 
-              <GlassCard className="p-6">
+              {/* Mobile Cards */}
+              <div className="block sm:hidden space-y-2">
+                {paginatedUsers.map((user, index) => {
+                  const stats = userStats.find(s => s.userId === user.id) || {}
+                  return (
+                    <motion.div
+                      key={user.id}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: index * 0.05 }}
+                      className="glass p-3 rounded-xl2"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <div className="w-8 h-8 rounded-full bg-accent-steel/30 flex items-center justify-center text-sm font-medium">
+                            {(user.displayName || user.email || 'U').charAt(0).toUpperCase()}
+                          </div>
+                          <div>
+                            <div className="font-medium text-frost-50 text-sm">{user.displayName || 'No name'}</div>
+                            <div className="text-xs text-frost-400">{user.email}</div>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => setSelectedUser({ ...user, stats })}
+                          className="p-1.5 hover:bg-white/10 rounded-lg"
+                        >
+                          <Eye className="h-4 w-4 text-frost-300" />
+                        </button>
+                      </div>
+                      <div className="flex items-center gap-3 mt-2 pt-2 border-t border-white/10 text-xs">
+                        <span className="text-green-400">{stats.solvedCount || 0} solved</span>
+                        <span className="text-frost-300">{stats.totalSubmissions || 0} subs</span>
+                        <span className={stats.successRate >= 70 ? 'text-green-400' : stats.successRate >= 40 ? 'text-yellow-400' : 'text-red-400'}>
+                          {stats.successRate || 0}%
+                        </span>
+                      </div>
+                    </motion.div>
+                  )
+                })}
+              </div>
+
+              {/* Desktop Table */}
+              <GlassCard className="hidden sm:block p-4">
                 {error ? (
                   <div className="glass px-3 py-2 rounded-lg text-sm text-red-200 border border-red-500/20 mb-4">
                     {error}
@@ -498,15 +539,15 @@ export function AdminPanel() {
                 ) : null}
 
                 <div className="overflow-x-auto">
-                  <table className="w-full">
+                  <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-white/10">
-                        <th className="text-left py-3 px-3 text-sm font-medium text-frost-200">User</th>
-                        <th className="text-left py-3 px-3 text-sm font-medium text-frost-200">Role</th>
-                        <th className="text-center py-3 px-3 text-sm font-medium text-frost-200">Solved</th>
-                        <th className="text-center py-3 px-3 text-sm font-medium text-frost-200">Submissions</th>
-                        <th className="text-center py-3 px-3 text-sm font-medium text-frost-200">Success Rate</th>
-                        <th className="text-left py-3 px-3 text-sm font-medium text-frost-200">Actions</th>
+                        <th className="text-left py-2 px-2 text-xs font-medium text-frost-300">User</th>
+                        <th className="text-center py-2 px-2 text-xs font-medium text-frost-300">Role</th>
+                        <th className="text-center py-2 px-2 text-xs font-medium text-frost-300">Solved</th>
+                        <th className="text-center py-2 px-2 text-xs font-medium text-frost-300">Subs</th>
+                        <th className="text-center py-2 px-2 text-xs font-medium text-frost-300">Rate</th>
+                        <th className="text-left py-2 px-2 text-xs font-medium text-frost-300"></th>
                       </tr>
                     </thead>
                     <tbody>
@@ -517,53 +558,43 @@ export function AdminPanel() {
                             key={user.id}
                             initial={{ opacity: 0, y: 10 }}
                             animate={{ opacity: 1, y: 0 }}
-                            transition={{ delay: index * 0.05 }}
+                            transition={{ delay: index * 0.03 }}
                             className="border-b border-white/5 hover:bg-white/5 transition-colors"
                           >
-                            <td className="py-3 px-3">
-                              <div className="flex items-center gap-3">
-                                <div className="w-8 h-8 rounded-full bg-accent-steel/30 flex items-center justify-center text-sm font-medium">
+                            <td className="py-2 px-2">
+                              <div className="flex items-center gap-2">
+                                <div className="w-7 h-7 rounded-full bg-accent-steel/30 flex items-center justify-center text-xs font-medium">
                                   {(user.displayName || user.email || 'U').charAt(0).toUpperCase()}
                                 </div>
                                 <div>
-                                  <div className="font-medium text-frost-50 text-sm">
-                                    {user.displayName || 'No name'}
-                                  </div>
-                                  <div className="text-xs text-frost-400">{user.email}</div>
+                                  <div className="font-medium text-frost-50 text-sm">{user.displayName || 'No name'}</div>
+                                  <div className="text-[10px] text-frost-400">{user.email}</div>
                                 </div>
                               </div>
                             </td>
-                            <td className="py-3 px-3">
-                              <span className={`px-2 py-1 rounded text-xs font-medium ${
-                                user.role === 'ADMIN' 
-                                  ? 'bg-purple-500/20 text-purple-400' 
-                                  : 'bg-blue-500/20 text-blue-400'
+                            <td className="py-2 px-2 text-center">
+                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                                user.role === 'ADMIN' ? 'bg-purple-500/20 text-purple-400' : 'bg-blue-500/20 text-blue-400'
                               }`}>
-                                {user.role || 'USER'}
+                                {user.role === 'ADMIN' ? 'ADM' : 'USR'}
                               </span>
                             </td>
-                            <td className="py-3 px-3 text-center">
-                              <span className="text-sm font-medium text-green-400">
-                                {stats.solvedCount || 0}
-                              </span>
-                            </td>
-                            <td className="py-3 px-3 text-center text-sm text-frost-100">
-                              {stats.totalSubmissions || 0}
-                            </td>
-                            <td className="py-3 px-3 text-center">
-                              <span className={`text-sm font-medium ${
+                            <td className="py-2 px-2 text-center text-green-400 font-medium">{stats.solvedCount || 0}</td>
+                            <td className="py-2 px-2 text-center text-frost-300">{stats.totalSubmissions || 0}</td>
+                            <td className="py-2 px-2 text-center">
+                              <span className={`text-xs font-medium ${
                                 (stats.successRate || 0) >= 70 ? 'text-green-400' :
                                 (stats.successRate || 0) >= 40 ? 'text-yellow-400' : 'text-red-400'
                               }`}>
-                                {stats.successRate ? `${stats.successRate}%` : '0%'}
+                                {stats.successRate ? `${Math.round(stats.successRate)}%` : '0%'}
                               </span>
                             </td>
-                            <td className="py-3 px-3">
+                            <td className="py-2 px-2">
                               <button
                                 onClick={() => setSelectedUser({ ...user, stats })}
-                                className="p-2 hover:bg-white/10 rounded-lg transition-colors"
+                                className="p-1.5 hover:bg-white/10 rounded-lg transition-colors"
                               >
-                                <Eye className="h-4 w-4 text-frost-300" />
+                                <Eye className="h-3.5 w-3.5 text-frost-300" />
                               </button>
                             </td>
                           </motion.tr>
@@ -578,139 +609,175 @@ export function AdminPanel() {
                   totalPages={totalUserPages} 
                   onPageChange={setUserPage} 
                 />
-
-                <div className="mt-4 text-sm text-frost-400">
-                  Showing {paginatedUsers.length} of {filteredUsers.length} users
-                </div>
               </GlassCard>
 
+              <Pagination 
+                currentPage={userPage} 
+                totalPages={totalUserPages} 
+                onPageChange={setUserPage} 
+              />
+
               {selectedUser && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/60 backdrop-blur-sm">
                   <motion.div
                     initial={{ opacity: 0, scale: 0.95 }}
                     animate={{ opacity: 1, scale: 1 }}
-                    className="glass-card max-w-2xl w-full max-h-[80vh] overflow-y-auto p-6 rounded-2xl"
+                    className="glass-card w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6 rounded-xl"
                   >
-                    <div className="flex items-center justify-between mb-4">
-                      <h3 className="text-lg font-semibold text-frost-50">User Statistics</h3>
+                    {/* Header */}
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <div className="w-10 h-10 rounded-full bg-accent-steel/30 flex items-center justify-center text-lg font-medium">
+                          {(selectedUser.displayName || selectedUser.email || 'U').charAt(0).toUpperCase()}
+                        </div>
+                        <div>
+                          <p className="font-medium text-frost-50 text-sm">{selectedUser.displayName || 'No name'}</p>
+                          <p className="text-xs text-frost-400">{selectedUser.email}</p>
+                        </div>
+                      </div>
                       <button
-                        onClick={() => setSelectedUser(null)}
-                        className="p-1 hover:bg-white/10 rounded"
+                        onClick={() => { setSelectedUser(null); setUserSubmissions([]); setSelectedUserTab('solved'); }}
+                        className="p-1.5 hover:bg-white/10 rounded-lg"
                       >
                         ✕
                       </button>
                     </div>
-                    
-                    <div className="space-y-6">
-                      {/* User Header */}
-                      <div className="flex items-center gap-4">
-                        <div className="w-16 h-16 rounded-full bg-accent-steel/30 flex items-center justify-center text-2xl font-medium">
-                          {(selectedUser.displayName || selectedUser.email || 'U').charAt(0).toUpperCase()}
-                        </div>
-                        <div>
-                          <p className="font-semibold text-frost-50">{selectedUser.displayName || 'No name'}</p>
-                          <p className="text-sm text-frost-300">{selectedUser.email}</p>
-                          <span className={`inline-block mt-1 px-2 py-0.5 rounded text-xs ${
-                            selectedUser.role === 'ADMIN' 
-                              ? 'bg-purple-500/20 text-purple-400' 
-                              : 'bg-blue-500/20 text-blue-400'
-                          }`}>
-                            {selectedUser.role || 'USER'}
-                          </span>
+
+                    {/* Quick Stats */}
+                    <div className="grid grid-cols-4 gap-2 mb-4">
+                      <div className="glass p-2 rounded-lg text-center">
+                        <p className="text-[10px] text-frost-400">Subs</p>
+                        <p className="text-lg font-bold text-frost-50">{selectedUser.stats?.totalSubmissions || 0}</p>
+                      </div>
+                      <div className="glass p-2 rounded-lg text-center">
+                        <p className="text-[10px] text-frost-400">Solved</p>
+                        <p className="text-lg font-bold text-green-400">{selectedUser.stats?.solvedCount || 0}</p>
+                      </div>
+                      <div className="glass p-2 rounded-lg text-center">
+                        <p className="text-[10px] text-frost-400">Passed</p>
+                        <p className="text-lg font-bold text-blue-400">{selectedUser.stats?.passedCount || 0}</p>
+                      </div>
+                      <div className="glass p-2 rounded-lg text-center">
+                        <p className="text-[10px] text-frost-400">Rate</p>
+                        <p className={`text-lg font-bold ${
+                          (selectedUser.stats?.successRate || 0) >= 70 ? 'text-green-400' :
+                          (selectedUser.stats?.successRate || 0) >= 40 ? 'text-yellow-400' : 'text-red-400'
+                        }`}>
+                          {Math.round(selectedUser.stats?.successRate || 0)}%
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Languages */}
+                    {selectedUser.stats?.submissionsByLanguage && Object.keys(selectedUser.stats.submissionsByLanguage).length > 0 && (
+                      <div className="mb-3">
+                        <div className="flex flex-wrap gap-1.5">
+                          {Object.entries(selectedUser.stats.submissionsByLanguage).map(([lang, count]) => (
+                            <span key={lang} className="px-2 py-0.5 rounded glass text-xs text-frost-100">
+                              {lang}: {count}
+                            </span>
+                          ))}
                         </div>
                       </div>
+                    )}
 
-                      {/* Stats Grid */}
-                      <div className="grid grid-cols-4 gap-4">
-                        <div className="glass p-4 rounded-xl2 text-center">
-                          <p className="text-xs text-frost-400">Total Submissions</p>
-                          <p className="text-2xl font-bold text-frost-50">{selectedUser.stats?.totalSubmissions || 0}</p>
-                        </div>
-                        <div className="glass p-4 rounded-xl2 text-center">
-                          <p className="text-xs text-frost-400">Solved</p>
-                          <p className="text-2xl font-bold text-green-400">{selectedUser.stats?.solvedCount || 0}</p>
-                        </div>
-                        <div className="glass p-4 rounded-xl2 text-center">
-                          <p className="text-xs text-frost-400">Passed</p>
-                          <p className="text-2xl font-bold text-blue-400">{selectedUser.stats?.passedCount || 0}</p>
-                        </div>
-                        <div className="glass p-4 rounded-xl2 text-center">
-                          <p className="text-xs text-frost-400">Success Rate</p>
-                          <p className={`text-2xl font-bold ${
-                            (selectedUser.stats?.successRate || 0) >= 70 ? 'text-green-400' :
-                            (selectedUser.stats?.successRate || 0) >= 40 ? 'text-yellow-400' : 'text-red-400'
-                          }`}>
-                            {selectedUser.stats?.successRate ? `${selectedUser.stats.successRate}%` : '0%'}
-                          </p>
-                        </div>
-                      </div>
+                    {/* Tabs */}
+                    <div className="flex gap-1 mb-3 p-1 glass rounded-lg">
+                      <button
+                        onClick={() => setSelectedUserTab('solved')}
+                        className={`flex-1 py-1.5 px-3 rounded-md text-xs font-medium transition-all ${
+                          selectedUserTab === 'solved' ? 'bg-accent-steel/30 text-frost-50' : 'text-frost-300 hover:text-frost-100'
+                        }`}
+                      >
+                        Solved ({selectedUser.stats?.solvedCount || 0})
+                      </button>
+                      <button
+                        onClick={() => {
+                          setSelectedUserTab('all');
+                          if (userSubmissions.length === 0) {
+                            adminUserSubmissions(selectedUser.id).then(setUserSubmissions).catch(() => toast.error('Failed to load submissions'));
+                          }
+                        }}
+                        className={`flex-1 py-1.5 px-3 rounded-md text-xs font-medium transition-all ${
+                          selectedUserTab === 'all' ? 'bg-accent-steel/30 text-frost-50' : 'text-frost-300 hover:text-frost-100'
+                        }`}
+                      >
+                        All Attempts ({selectedUser.stats?.totalSubmissions || 0})
+                      </button>
+                    </div>
 
-                      {/* Languages */}
-                      {selectedUser.stats?.submissionsByLanguage && Object.keys(selectedUser.stats.submissionsByLanguage).length > 0 && (
-                        <div>
-                          <h4 className="text-sm font-medium text-frost-200 mb-3">Submissions by Language</h4>
-                          <div className="flex flex-wrap gap-2">
-                            {Object.entries(selectedUser.stats.submissionsByLanguage).map(([lang, count]) => (
-                              <span key={lang} className="px-3 py-1 rounded-lg glass text-sm text-frost-100">
-                                {lang}: <span className="font-medium">{count}</span>
-                              </span>
+                    {/* Solved Problems Tab */}
+                    {selectedUserTab === 'solved' && selectedUser.stats?.solvedProblems && selectedUser.stats.solvedProblems.length > 0 && (
+                      <div className="glass rounded-lg overflow-hidden max-h-56 overflow-y-auto">
+                        <table className="w-full text-xs">
+                          <thead className="bg-white/5 sticky top-0">
+                            <tr>
+                              <th className="text-left py-1.5 px-2 font-medium text-frost-400">Problem</th>
+                              <th className="text-center py-1.5 px-2 font-medium text-frost-400">Diff</th>
+                              <th className="text-center py-1.5 px-2 font-medium text-frost-400">Att</th>
+                              <th className="text-right py-1.5 px-2 font-medium text-frost-400">Date</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {selectedUser.stats.solvedProblems.map((prob, idx) => (
+                              <tr key={idx} className="border-b border-white/5 last:border-0">
+                                <td className="py-1.5 px-2 text-frost-100 truncate max-w-[100px]">{prob.problemId}</td>
+                                <td className="py-1.5 px-2 text-center">
+                                  <span className={`${difficultyColors[prob.difficulty] || 'text-frost-300'}`}>
+                                    {prob.difficulty?.slice(0, 1) || '?'}
+                                  </span>
+                                </td>
+                                <td className="py-1.5 px-2 text-center text-frost-300">{prob.attemptsToSolve}</td>
+                                <td className="py-1.5 px-2 text-right text-[10px] text-frost-400">
+                                  {prob.solvedAt ? new Date(prob.solvedAt).toLocaleDateString(undefined, {month:'short', day:'numeric'}) : '-'}
+                                </td>
+                              </tr>
                             ))}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Solved Problems Table */}
-                      {selectedUser.stats?.solvedProblems && selectedUser.stats.solvedProblems.length > 0 && (
-                        <div>
-                          <h4 className="text-sm font-medium text-frost-200 mb-3">
-                            Solved Problems ({selectedUser.stats.solvedProblems.length})
-                          </h4>
-                          <div className="glass rounded-xl2 overflow-hidden">
-                            <table className="w-full">
-                              <thead>
-                                <tr className="border-b border-white/10">
-                                  <th className="text-left py-2 px-3 text-xs font-medium text-frost-300">Problem</th>
-                                  <th className="text-center py-2 px-3 text-xs font-medium text-frost-300">Difficulty</th>
-                                  <th className="text-center py-2 px-3 text-xs font-medium text-frost-300">Attempts</th>
-                                  <th className="text-right py-2 px-3 text-xs font-medium text-frost-300">Solved At</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {selectedUser.stats.solvedProblems.map((prob, idx) => (
-                                  <tr key={idx} className="border-b border-white/5 last:border-0">
-                                    <td className="py-2 px-3 text-sm text-frost-100">{prob.problemId}</td>
-                                    <td className="py-2 px-3 text-center">
-                                      <span className={`text-xs ${difficultyColors[prob.difficulty] || 'text-frost-300'}`}>
-                                        {prob.difficulty || 'UNKNOWN'}
-                                      </span>
-                                    </td>
-                                    <td className="py-2 px-3 text-center text-sm text-frost-100">
-                                      {prob.attemptsToSolve}
-                                    </td>
-                                    <td className="py-2 px-3 text-right text-xs text-frost-400">
-                                      {prob.solvedAt ? new Date(prob.solvedAt).toLocaleDateString() : 'N/A'}
-                                    </td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Footer Info */}
-                      <div className="grid grid-cols-2 gap-4 pt-4 border-t border-white/10">
-                        <div>
-                          <p className="text-xs text-frost-400">User ID</p>
-                          <p className="text-sm text-frost-200 font-mono">{selectedUser.id?.slice(0, 16)}...</p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-frost-400">Joined</p>
-                          <p className="text-sm text-frost-200">
-                            {selectedUser.createdAt ? new Date(selectedUser.createdAt).toLocaleDateString() : 'N/A'}
-                          </p>
-                        </div>
+                          </tbody>
+                        </table>
                       </div>
+                    )}
+
+                    {/* All Submissions Tab */}
+                    {selectedUserTab === 'all' && (
+                      <div className="glass rounded-lg overflow-hidden max-h-56 overflow-y-auto">
+                        {userSubmissions.length === 0 ? (
+                          <div className="p-4 text-center text-xs text-frost-400">Loading...</div>
+                        ) : (
+                          <table className="w-full text-xs">
+                            <thead className="bg-white/5 sticky top-0">
+                              <tr>
+                                <th className="text-left py-1.5 px-2 font-medium text-frost-400">Problem</th>
+                                <th className="text-center py-1.5 px-2 font-medium text-frost-400">#</th>
+                                <th className="text-center py-1.5 px-2 font-medium text-frost-400">Res</th>
+                                <th className="text-right py-1.5 px-2 font-medium text-frost-400">Date</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {userSubmissions.map((sub, idx) => (
+                                <tr key={idx} className="border-b border-white/5 last:border-0">
+                                  <td className="py-1.5 px-2 text-frost-100 truncate max-w-[100px]">{sub.problemId}</td>
+                                  <td className="py-1.5 px-2 text-center text-frost-300">{sub.attemptNumber}</td>
+                                  <td className="py-1.5 px-2 text-center">
+                                    <span className={sub.passed ? 'text-green-400' : 'text-red-400'}>
+                                      {sub.passed ? '✓' : '✗'} {sub.passedCount}/{sub.totalCount}
+                                    </span>
+                                  </td>
+                                  <td className="py-1.5 px-2 text-right text-[10px] text-frost-400">
+                                    {sub.createdAt ? new Date(sub.createdAt).toLocaleDateString(undefined, {month:'short', day:'numeric'}) : '-'}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Footer */}
+                    <div className="flex items-center justify-between mt-4 pt-3 border-t border-white/10 text-xs text-frost-400">
+                      <span className="font-mono">{selectedUser.id?.slice(0, 12)}...</span>
+                      <span>{selectedUser.createdAt ? new Date(selectedUser.createdAt).toLocaleDateString() : 'N/A'}</span>
                     </div>
                   </motion.div>
                 </div>
@@ -724,169 +791,107 @@ export function AdminPanel() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
-              className="space-y-4"
+              className="space-y-3"
             >
-              <div className="flex items-center justify-between">
-                <h2 className="text-xl font-semibold text-frost-50">Problem Management</h2>
-                <div className="flex items-center gap-3">
-                  <div className="glass px-4 py-2 flex items-center gap-2">
-                    <Search className="h-4 w-4 text-frost-300" />
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+                <h2 className="text-lg font-semibold text-frost-50">Problems ({filteredProblems.length})</h2>
+                <div className="flex items-center gap-2 w-full sm:w-auto">
+                  <div className="glass px-3 py-1.5 flex items-center gap-2 flex-1 sm:flex-none">
+                    <Search className="h-3.5 w-3.5 text-frost-300" />
                     <input
                       type="text"
-                      placeholder="Search problems..."
+                      placeholder="Search..."
                       value={problemSearch}
                       onChange={(e) => { setProblemSearch(e.target.value); setProblemPage(1) }}
-                      className="bg-transparent outline-none text-frost-100 placeholder-frost-300 w-48"
+                      className="bg-transparent outline-none text-frost-100 placeholder-frost-300 text-sm w-full sm:w-32"
                     />
                   </div>
                   <select
                     value={difficultyFilter}
                     onChange={(e) => { setDifficultyFilter(e.target.value); setProblemPage(1) }}
-                    className="glass px-3 py-2 rounded-lg text-frost-100 bg-transparent"
+                    className="glass px-2 py-1.5 rounded-lg text-frost-100 bg-transparent text-xs"
                   >
-                    <option value="ALL">All Difficulties</option>
+                    <option value="ALL">All</option>
                     <option value="EASY">Easy</option>
-                    <option value="MEDIUM">Medium</option>
+                    <option value="MEDIUM">Med</option>
                     <option value="HARD">Hard</option>
-                  </select>
-                  <select
-                    value={statusFilter}
-                    onChange={(e) => { setStatusFilter(e.target.value); setProblemPage(1) }}
-                    className="glass px-3 py-2 rounded-lg text-frost-100 bg-transparent"
-                  >
-                    <option value="ALL">All Status</option>
-                    <option value="PUBLISHED">Published</option>
-                    <option value="DRAFT">Draft</option>
-                    <option value="ARCHIVED">Archived</option>
                   </select>
                   <motion.button
                     whileTap={{ scale: 0.95 }}
                     onClick={() => setAddOpen(true)}
-                    className="glass-strong px-4 py-2 rounded-lg text-frost-50 flex items-center gap-2"
+                    className="glass-strong px-3 py-1.5 rounded-lg text-frost-50 flex items-center gap-1 text-xs"
                   >
-                    <Plus className="h-4 w-4" />
-                    Add Problem
+                    <Plus className="h-3.5 w-3.5" />
+                    Add
                   </motion.button>
                 </div>
               </div>
 
+              {/* Mobile Problem Cards */}
+              <div className="block sm:hidden space-y-2">
+                {paginatedProblems.map((problem, index) => (
+                  <motion.div
+                    key={problem.id}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: index * 0.05 }}
+                    className="glass p-3 rounded-xl2"
+                  >
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <div className="font-medium text-frost-50 text-sm">{problem.title}</div>
+                        <div className="text-[10px] text-frost-400">{problem.id}</div>
+                      </div>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded ${
+                        problem.status === 'PUBLISHED' ? 'bg-green-500/20 text-green-400' :
+                        problem.status === 'DRAFT' ? 'bg-yellow-500/20 text-yellow-400' :
+                        'bg-gray-500/20 text-gray-400'
+                      }`}>
+                        {problem.status?.slice(0, 3)}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3 mt-2 text-xs">
+                      <span className={difficultyColors[problem.difficulty] || 'text-frost-300'}>{problem.difficulty}</span>
+                      <span className="text-frost-400">{Number(problem.submissions) || 0} subs</span>
+                    </div>
+                  </motion.div>
+                ))}
+              </div>
+
+              {/* Add Problem Modal - Compact */}
               <AnimatePresence>
                 {addOpen && (
                   <motion.div
                     initial={{ opacity: 0, height: 0 }}
                     animate={{ opacity: 1, height: 'auto' }}
                     exit={{ opacity: 0, height: 0 }}
+                    className="overflow-hidden"
                   >
-                    <GlassCard className="p-6">
-                      <div className="flex items-center justify-between mb-4">
-                        <h3 className="text-lg font-semibold text-frost-50">Add New Problem</h3>
-                        <button
-                          onClick={() => setAddOpen(false)}
-                          className="p-1 hover:bg-white/10 rounded"
-                        >
-                          ✕
-                        </button>
+                    <GlassCard className="p-4 mb-3">
+                      <div className="flex items-center justify-between mb-3">
+                        <h3 className="text-sm font-semibold text-frost-50">Add Problem</h3>
+                        <button onClick={() => setAddOpen(false)} className="p-1 hover:bg-white/10 rounded">✕</button>
                       </div>
-                      <div className="space-y-4">
-                        <div className="grid gap-3 md:grid-cols-2">
-                          <input value={pId} onChange={(e) => setPId(e.target.value)} placeholder="ID (slug)" className="w-full glass px-4 py-3 rounded-lg text-frost-50 bg-transparent" />
-                          <input value={pTitle} onChange={(e) => setPTitle(e.target.value)} placeholder="Title" className="w-full glass px-4 py-3 rounded-lg text-frost-50 bg-transparent" />
+                      <div className="space-y-2 text-sm">
+                        <div className="grid gap-2 grid-cols-2">
+                          <input value={pId} onChange={(e) => setPId(e.target.value)} placeholder="ID" className="glass px-3 py-2 rounded-lg text-frost-50 bg-transparent text-sm" />
+                          <input value={pTitle} onChange={(e) => setPTitle(e.target.value)} placeholder="Title" className="glass px-3 py-2 rounded-lg text-frost-50 bg-transparent text-sm" />
                         </div>
-                        <textarea value={pStatement} onChange={(e) => setPStatement(e.target.value)} placeholder="Statement" className="w-full glass px-4 py-3 rounded-lg text-frost-50 bg-transparent min-h-[120px]" />
-                        <div className="grid gap-3 md:grid-cols-2">
-                          <input value={pInputFormat} onChange={(e) => setPInputFormat(e.target.value)} placeholder="Input format" className="w-full glass px-4 py-3 rounded-lg text-frost-50 bg-transparent" />
-                          <input value={pOutputFormat} onChange={(e) => setPOutputFormat(e.target.value)} placeholder="Output format" className="w-full glass px-4 py-3 rounded-lg text-frost-50 bg-transparent" />
-                        </div>
-                        <div className="grid gap-3 md:grid-cols-4">
-                          <select value={pDifficulty} onChange={(e) => setPDifficulty(e.target.value)} className="glass px-4 py-3 rounded-lg text-frost-50 bg-transparent">
-                            <option className="bg-ink-900" value="EASY">EASY</option>
-                            <option className="bg-ink-900" value="MEDIUM">MEDIUM</option>
-                            <option className="bg-ink-900" value="HARD">HARD</option>
+                        <textarea value={pStatement} onChange={(e) => setPStatement(e.target.value)} placeholder="Statement" className="w-full glass px-3 py-2 rounded-lg text-frost-50 bg-transparent text-sm min-h-[60px]" />
+                        <div className="grid gap-2 grid-cols-2">
+                          <select value={pDifficulty} onChange={(e) => setPDifficulty(e.target.value)} className="glass px-3 py-2 rounded-lg text-frost-50 bg-transparent text-sm">
+                            <option value="EASY">Easy</option>
+                            <option value="MEDIUM">Medium</option>
+                            <option value="HARD">Hard</option>
                           </select>
-                          <select value={pStatus} onChange={(e) => setPStatus(e.target.value)} className="glass px-4 py-3 rounded-lg text-frost-50 bg-transparent">
-                            <option className="bg-ink-900" value="DRAFT">DRAFT</option>
-                            <option className="bg-ink-900" value="PUBLISHED">PUBLISHED</option>
-                            <option className="bg-ink-900" value="ARCHIVED">ARCHIVED</option>
+                          <select value={pStatus} onChange={(e) => setPStatus(e.target.value)} className="glass px-3 py-2 rounded-lg text-frost-50 bg-transparent text-sm">
+                            <option value="DRAFT">Draft</option>
+                            <option value="PUBLISHED">Published</option>
                           </select>
-                          <input value={pTags} onChange={(e) => setPTags(e.target.value)} placeholder="Tags (comma)" className="w-full glass px-4 py-3 rounded-lg text-frost-50 bg-transparent md:col-span-2" />
                         </div>
-                        <div className="grid gap-3 md:grid-cols-2">
-                          <textarea value={starterGo} onChange={(e) => setStarterGo(e.target.value)} placeholder="Starter code (Go)" className="w-full glass px-4 py-3 rounded-lg text-frost-50 bg-transparent min-h-[120px]" />
-                          <textarea value={starterPy} onChange={(e) => setStarterPy(e.target.value)} placeholder="Starter code (Python)" className="w-full glass px-4 py-3 rounded-lg text-frost-50 bg-transparent min-h-[120px]" />
-                        </div>
-                        <div className="space-y-3">
-                          <div className="flex items-center justify-between">
-                            <div className="text-frost-50 font-medium">Test cases</div>
-                            <button type="button" onClick={onAddTestCase} className="glass px-3 py-2 rounded-lg text-frost-50 text-sm">Add Test Case</button>
-                          </div>
-                          <div className="space-y-3">
-                            {testCases.map((tc, idx) => (
-                              <div key={idx} className="glass p-4 rounded-xl2 space-y-3">
-                                <div className="flex items-center justify-between">
-                                  <label className="flex items-center gap-2 text-frost-200 text-sm">
-                                    <input
-                                      type="checkbox"
-                                      checked={!!tc.isHidden}
-                                      onChange={(e) => {
-                                        setTestCases((prev) => {
-                                          const next = [...prev]
-                                          next[idx] = { ...next[idx], isHidden: e.target.checked }
-                                          return next
-                                        })
-                                      }}
-                                    />
-                                    Hidden?
-                                  </label>
-                                  <button type="button" onClick={() => onRemoveTestCase(idx)} className="glass px-3 py-2 rounded-lg text-frost-50 text-sm">Remove</button>
-                                </div>
-                                <div className="grid gap-3 md:grid-cols-2">
-                                  <textarea
-                                    value={tc.input}
-                                    onChange={(e) => {
-                                      const val = e.target.value
-                                      setTestCases((prev) => {
-                                        const next = [...prev]
-                                        next[idx] = { ...next[idx], input: val }
-                                        return next
-                                      })
-                                    }}
-                                    placeholder="Input"
-                                    className="w-full glass px-4 py-3 rounded-lg text-frost-50 bg-transparent min-h-[120px]"
-                                  />
-                                  <textarea
-                                    value={tc.output}
-                                    onChange={(e) => {
-                                      const val = e.target.value
-                                      setTestCases((prev) => {
-                                        const next = [...prev]
-                                        next[idx] = { ...next[idx], output: val }
-                                        return next
-                                      })
-                                    }}
-                                    placeholder="Output"
-                                    className="w-full glass px-4 py-3 rounded-lg text-frost-50 bg-transparent min-h-[120px]"
-                                  />
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                        <div className="flex gap-3">
-                          <button
-                            type="button"
-                            onClick={() => setAddOpen(false)}
-                            className="glass px-4 py-3 rounded-lg text-frost-50 flex-1"
-                          >
-                            Cancel
-                          </button>
-                          <button
-                            type="button"
-                            disabled={saving}
-                            onClick={onSaveProblem}
-                            className="glass-strong px-4 py-3 rounded-lg text-frost-50 flex-1 disabled:opacity-50"
-                          >
-                            {saving ? 'Saving…' : 'Save Problem'}
-                          </button>
+                        <div className="flex gap-2 pt-2">
+                          <button onClick={() => setAddOpen(false)} className="glass px-3 py-2 rounded-lg text-frost-50 flex-1 text-sm">Cancel</button>
+                          <button disabled={saving} onClick={onSaveProblem} className="glass-strong px-3 py-2 rounded-lg text-frost-50 flex-1 text-sm">{saving ? '…' : 'Save'}</button>
                         </div>
                       </div>
                     </GlassCard>
@@ -894,16 +899,16 @@ export function AdminPanel() {
                 )}
               </AnimatePresence>
 
-              <GlassCard className="p-6">
+              {/* Desktop Problems Table */}
+              <GlassCard className="hidden sm:block p-4">
                 <div className="overflow-x-auto">
-                  <table className="w-full">
+                  <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-white/10">
-                        <th className="text-left py-3 px-3 text-sm font-medium text-frost-200">Problem</th>
-                        <th className="text-left py-3 px-3 text-sm font-medium text-frost-200">Difficulty</th>
-                        <th className="text-left py-3 px-3 text-sm font-medium text-frost-200">Status</th>
-                        <th className="text-left py-3 px-3 text-sm font-medium text-frost-200">Submissions</th>
-                        <th className="text-left py-3 px-3 text-sm font-medium text-frost-200">Actions</th>
+                        <th className="text-left py-2 px-2 text-xs font-medium text-frost-300">Problem</th>
+                        <th className="text-center py-2 px-2 text-xs font-medium text-frost-300">Diff</th>
+                        <th className="text-center py-2 px-2 text-xs font-medium text-frost-300">Status</th>
+                        <th className="text-center py-2 px-2 text-xs font-medium text-frost-300">Subs</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -912,54 +917,29 @@ export function AdminPanel() {
                           key={problem.id}
                           initial={{ opacity: 0, y: 10 }}
                           animate={{ opacity: 1, y: 0 }}
-                          transition={{ delay: index * 0.05 }}
+                          transition={{ delay: index * 0.03 }}
                           className="border-b border-white/5 hover:bg-white/5 transition-colors"
                         >
-                          <td className="py-3 px-3">
+                          <td className="py-2 px-2">
                             <div className="font-medium text-frost-50 text-sm">{problem.title}</div>
-                            <div className="text-xs text-frost-400">{problem.id}</div>
-                            {problem.tags?.length > 0 && (
-                              <div className="flex gap-1 mt-1">
-                                {problem.tags.slice(0, 3).map((tag, i) => (
-                                  <span key={i} className="text-[10px] px-1.5 py-0.5 rounded bg-white/10 text-frost-300">
-                                    {tag}
-                                  </span>
-                                ))}
-                              </div>
-                            )}
+                            <div className="text-[10px] text-frost-400">{problem.id}</div>
                           </td>
-                          <td className="py-3 px-3">
-                            <span className={`text-sm font-medium ${difficultyColors[problem.difficulty] || 'text-frost-200'}`}>
-                              {problem.difficulty}
+                          <td className="py-2 px-2 text-center">
+                            <span className={`text-xs ${difficultyColors[problem.difficulty] || 'text-frost-300'}`}>
+                              {problem.difficulty?.slice(0, 1)}
                             </span>
                           </td>
-                          <td className="py-3 px-3">
-                            <span className={`px-2 py-1 rounded text-xs font-medium ${
+                          <td className="py-2 px-2 text-center">
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded ${
                               problem.status === 'PUBLISHED' ? 'bg-green-500/20 text-green-400' :
                               problem.status === 'DRAFT' ? 'bg-yellow-500/20 text-yellow-400' :
                               'bg-gray-500/20 text-gray-400'
                             }`}>
-                              {problem.status}
+                              {problem.status?.slice(0, 3)}
                             </span>
                           </td>
-                          <td className="py-3 px-3 text-sm text-frost-100">
+                          <td className="py-2 px-2 text-center text-xs text-frost-300">
                             {Number(problem.submissions) || 0}
-                          </td>
-                          <td className="py-3 px-3">
-                            <div className="flex items-center gap-2">
-                              <button
-                                onClick={() => toast.success('Edit feature coming soon!')}
-                                className="p-2 hover:bg-white/10 rounded-lg transition-colors"
-                              >
-                                <Eye className="h-4 w-4 text-frost-300" />
-                              </button>
-                              <button
-                                onClick={() => toast.success(`Problem ${problem.id} marked for deletion`)}
-                                className="p-2 hover:bg-red-500/20 rounded-lg transition-colors"
-                              >
-                                <Trash2 className="h-4 w-4 text-red-400" />
-                              </button>
-                            </div>
                           </td>
                         </motion.tr>
                       ))}
@@ -972,11 +952,13 @@ export function AdminPanel() {
                   totalPages={totalProblemPages} 
                   onPageChange={setProblemPage} 
                 />
-
-                <div className="mt-4 text-sm text-frost-400">
-                  Showing {paginatedProblems.length} of {filteredProblems.length} problems
-                </div>
               </GlassCard>
+
+              <Pagination 
+                currentPage={problemPage} 
+                totalPages={totalProblemPages} 
+                onPageChange={setProblemPage} 
+              />
             </motion.div>
           )}
         </AnimatePresence>

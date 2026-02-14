@@ -76,6 +76,10 @@ export function adminUserStats() {
   return apiFetch('/admin/user-stats', { method: 'GET' })
 }
 
+export function adminUserSubmissions(userId) {
+  return apiFetch(`/admin/user-submissions?userId=${encodeURIComponent(userId)}`, { method: 'GET' })
+}
+
 export function createAdminProblem(problem) {
   return apiFetch('/admin/problems', {
     method: 'POST',

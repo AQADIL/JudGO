@@ -362,6 +362,61 @@ func (h *Handler) HandleAdminUserStats(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
+func (h *Handler) HandleAdminUserSubmissions(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	if h.practiceRepo == nil {
+		h.writeError(w, http.StatusNotImplemented, "practice repository not configured")
+		return
+	}
+
+	// Get userID from query param
+	userID := r.URL.Query().Get("userId")
+	if userID == "" {
+		h.writeError(w, http.StatusBadRequest, "userId is required")
+		return
+	}
+
+	// Get all submissions for user
+	subs, err := h.practiceRepo.ListSubmissions(r.Context(), userID)
+	if err != nil {
+		h.writeError(w, http.StatusInternalServerError, "failed to list submissions")
+		return
+	}
+
+	// Get problem difficulties for reference
+	probDifficulty := map[string]string{}
+	if h.problemSvc != nil {
+		if list, perr := h.problemSvc.ListAdmin(r.Context()); perr == nil {
+			for _, p := range list {
+				if p == nil {
+					continue
+				}
+				probDifficulty[p.ID] = string(p.Difficulty)
+			}
+		}
+	}
+
+	// Build response with all submission details
+	result := make([]map[string]interface{}, 0, len(subs))
+	for _, s := range subs {
+		result = append(result, map[string]interface{}{
+			"problemId":     s.ProblemID,
+			"difficulty":    probDifficulty[s.ProblemID],
+			"language":      strings.ToUpper(strings.TrimSpace(s.Language)),
+			"passed":        s.Passed,
+			"passedCount":   s.PassedCount,
+			"totalCount":    s.TotalCount,
+			"attemptNumber": s.AttemptNumber,
+			"createdAt":     s.CreatedAt,
+		})
+	}
+
+	writeJSON(w, http.StatusOK, result)
+}
+
 func (h *Handler) HandleAdminProblems(w http.ResponseWriter, r *http.Request) {
 	if !h.handleCORS(w, r) {
 		return

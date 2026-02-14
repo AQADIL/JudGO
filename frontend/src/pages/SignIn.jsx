@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
+import toast from 'react-hot-toast'
 
 import { BrandMark } from '../components/BrandMark'
 import { GlassCard } from '../components/GlassCard'
@@ -29,9 +30,12 @@ export function SignIn() {
     setLoading(true)
     try {
       await firebaseSignInEmail(email, password)
+      toast.success('Signed in successfully!')
       navigate('/', { replace: true })
     } catch (err) {
-      setError(err?.message || 'Sign in failed')
+      const msg = err?.message || 'Sign in failed'
+      setError(msg)
+      toast.error(msg)
     } finally {
       setLoading(false)
     }
@@ -43,9 +47,12 @@ export function SignIn() {
     setLoading(true)
     try {
       await firebaseSignInGoogle()
+      toast.success('Signed in with Google!')
       navigate('/', { replace: true })
     } catch (err) {
-      setError(err?.message || 'Google sign in failed')
+      const msg = err?.message || 'Google sign in failed'
+      setError(msg)
+      toast.error(msg)
     } finally {
       setLoading(false)
     }
@@ -54,7 +61,7 @@ export function SignIn() {
   async function onForgotPassword() {
     const e = String(email || '').trim()
     if (!e) {
-      setError('Enter your email first')
+      toast.error('Enter your email first')
       return
     }
     setError('')
@@ -62,13 +69,13 @@ export function SignIn() {
     setLoading(true)
     try {
       await firebaseSendPasswordReset(e)
-      setInfo('Password reset email sent. Check your inbox and spam folder.')
+      toast.success('Password reset email sent! Check your inbox and spam folder.')
     } catch (err) {
       const errorCode = err?.code || ''
       if (errorCode.includes('user-not-found') || errorCode.includes('auth/user-not-found')) {
-        setError('No account found with this email address')
+        toast.error('No account found with this email address')
       } else {
-        setError(err?.message || 'Failed to send reset email')
+        toast.error(err?.message || 'Failed to send reset email')
       }
     } finally {
       setLoading(false)

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
+import toast from 'react-hot-toast'
 
 import { BrandMark } from '../components/BrandMark'
 import { GlassCard } from '../components/GlassCard'
@@ -27,9 +28,12 @@ export function SignUp() {
     setLoading(true)
     try {
       await firebaseSignUpEmail(email, password)
+      toast.success('Account created successfully!')
       navigate('/dashboard', { replace: true })
     } catch (err) {
-      setError(err?.message || 'Sign up failed')
+      const msg = err?.message || 'Sign up failed'
+      setError(msg)
+      toast.error(msg)
     } finally {
       setLoading(false)
     }
@@ -40,9 +44,12 @@ export function SignUp() {
     setLoading(true)
     try {
       await firebaseSignInGoogle()
+      toast.success('Signed in with Google!')
       navigate('/dashboard', { replace: true })
     } catch (err) {
-      setError(err?.message || 'Google sign up failed')
+      const msg = err?.message || 'Google sign up failed'
+      setError(msg)
+      toast.error(msg)
     } finally {
       setLoading(false)
     }
