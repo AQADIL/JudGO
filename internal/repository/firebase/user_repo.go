@@ -12,6 +12,7 @@ import (
 
 type UserRepository interface {
 	Create(ctx context.Context, u *domain.User) error
+	Update(ctx context.Context, u *domain.User) error
 	Get(ctx context.Context, id string) (*domain.User, error)
 	GetByEmail(ctx context.Context, email string) (*domain.User, error)
 	Count(ctx context.Context) (int, error)
@@ -35,6 +36,17 @@ func (r *FirebaseUserRepository) userRef(id string) *db.Ref {
 }
 
 func (r *FirebaseUserRepository) Create(ctx context.Context, u *domain.User) error {
+	if u.ID == "" {
+		return fmt.Errorf("user ID is required")
+	}
+	if u.Email == "" {
+		return fmt.Errorf("email is required")
+	}
+
+	return r.userRef(u.ID).Set(ctx, u)
+}
+
+func (r *FirebaseUserRepository) Update(ctx context.Context, u *domain.User) error {
 	if u.ID == "" {
 		return fmt.Errorf("user ID is required")
 	}

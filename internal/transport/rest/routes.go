@@ -4,6 +4,7 @@ import "net/http"
 
 func RegisterRoutes(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("/profile/init", h.FirebaseAuthRequired(h.HandleProfileInit))
+	mux.HandleFunc("/profile", h.FirebaseAuthRequired(h.HandleProfileUpdate))
 	mux.HandleFunc("/me", h.FirebaseAuthRequired(h.HandleMeFirebase))
 	mux.HandleFunc("/dashboard/stats", h.FirebaseAuthRequired(h.HandleDashboardStats))
 	mux.HandleFunc("/admin/users", h.FirebaseAuthRequired(h.AdminOnly(h.HandleAdminUsers)))

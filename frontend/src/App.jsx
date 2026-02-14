@@ -17,6 +17,7 @@ import { RoomPreJoin } from './pages/RoomPreJoin'
 import { RoomGame } from './pages/RoomGame'
 import { SignIn } from './pages/SignIn'
 import { SignUp } from './pages/SignUp'
+import { Profile } from './pages/Profile'
 import { useAuthStore } from './stores/authStore'
 import { useGameStore } from './stores/gameStore'
 
@@ -25,9 +26,10 @@ function Navigation() {
 
   const status = useAuthStore((s) => s.status)
   const rulesAccepted = useAuthStore((s) => s.rulesAccepted)
-  const logout = useAuthStore((s) => s.logout)
 
   const accepted = status === 'auth' && rulesAccepted
+
+  const hasAuth = status === 'auth'
 
   const navItems = accepted
     ? [
@@ -35,8 +37,14 @@ function Navigation() {
         { path: '/dashboard', label: 'Dashboard' },
         { path: '/arena', label: 'Arena' },
         { path: '/admin', label: 'Admin' },
+        { path: '/profile', label: 'Profile' },
       ]
-    : [{ path: '/', label: 'Home' }]
+    : hasAuth
+      ? [
+          { path: '/', label: 'Home' },
+          { path: '/profile', label: 'Profile' },
+        ]
+      : [{ path: '/', label: 'Home' }]
 
   return (
     <nav className="glass sticky top-0 z-40 backdrop-blur-xl border-b border-white/10">
@@ -67,16 +75,7 @@ function Navigation() {
               )
             })}
 
-            {status === 'auth' ? (
-              <motion.button
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={logout}
-                className="ml-2 px-4 py-2 rounded-lg text-sm font-medium text-frost-200 hover:text-frost-50 hover:bg-white/5 transition-all"
-              >
-                Logout
-              </motion.button>
-            ) : (
+            {status !== 'auth' ? (
               <Link to="/signin">
                 <motion.div
                   whileHover={{ scale: 1.05 }}
@@ -86,7 +85,7 @@ function Navigation() {
                   Sign in
                 </motion.div>
               </Link>
-            )}
+            ) : null}
           </div>
 
           <div className="md:hidden">
@@ -246,6 +245,15 @@ function App() {
         <Route path="/" element={<HomePage />} />
         <Route path="/signin" element={<SignIn />} />
         <Route path="/signup" element={<SignUp />} />
+
+        <Route
+          path="/profile"
+          element={
+            <RequireAuth>
+              <Profile />
+            </RequireAuth>
+          }
+        />
 
         <Route
           path="/arena"

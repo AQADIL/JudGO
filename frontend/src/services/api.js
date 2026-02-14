@@ -60,6 +60,13 @@ export function me() {
   return apiFetch('/me', { method: 'GET' })
 }
 
+export function updateProfile({ displayName }) {
+  return apiFetch('/profile', {
+    method: 'PUT',
+    body: JSON.stringify({ displayName }),
+  })
+}
+
 export function dashboardStats() {
   return apiFetch('/dashboard/stats', { method: 'GET' })
 }

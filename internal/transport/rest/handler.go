@@ -97,6 +97,10 @@ type profileInitResponse struct {
 	User *domain.User `json:"user"`
 }
 
+type updateProfileRequest struct {
+	DisplayName string `json:"displayName"`
+}
+
 type dashboardStatsResponse struct {
 	SolvedTotal              int            `json:"solvedTotal"`
 	SubmissionsTotal         int            `json:"submissionsTotal"`
@@ -239,6 +243,51 @@ func (h *Handler) HandleMeFirebase(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"userId": uid, "email": email})
 		return
 	}
+	u.PasswordHash = ""
+	writeJSON(w, http.StatusOK, u)
+}
+
+func (h *Handler) HandleProfileUpdate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	email, _ := r.Context().Value(ctxEmailKey).(string)
+	if email == "" {
+		h.writeError(w, http.StatusBadRequest, "email is missing in context")
+		return
+	}
+
+	var req updateProfileRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+
+	dn := strings.TrimSpace(req.DisplayName)
+	if dn == "" {
+		h.writeError(w, http.StatusBadRequest, "displayName is required")
+		return
+	}
+	if len([]rune(dn)) > 32 {
+		h.writeError(w, http.StatusBadRequest, "displayName too long")
+		return
+	}
+
+	u, err := h.userRepo.GetByEmail(r.Context(), email)
+	if err != nil {
+		h.writeError(w, http.StatusInternalServerError, "failed to load profile")
+		return
+	}
+
+	u.DisplayName = dn
+	u.UpdatedAt = time.Now().UTC()
+	if err := h.userRepo.Update(r.Context(), u); err != nil {
+		h.writeError(w, http.StatusInternalServerError, "failed to update profile")
+		return
+	}
+
 	u.PasswordHash = ""
 	writeJSON(w, http.StatusOK, u)
 }
