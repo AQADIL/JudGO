@@ -1,0 +1,54 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Press+Start+2P&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: geometricPrecision;
+  }
+
+  html,
+  body {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-ink-950 text-frost-50 font-pixel antialiased tracking-tight;
+    margin: 0;
+    background-image:
+      radial-gradient(900px 700px at 18% 8%, rgba(147, 197, 253, 0.10), transparent 62%),
+      radial-gradient(900px 700px at 82% 18%, rgba(196, 181, 253, 0.08), transparent 66%),
+      radial-gradient(1200px 900px at 50% 110%, rgba(255, 255, 255, 0.04), transparent 56%);
+    background-attachment: fixed;
+  }
+
+  #root {
+    position: relative;
+    isolation: isolate;
+    min-height: 100dvh;
+  }
+}
+
+@layer components {
+  .noise-overlay {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.03;
+    z-index: 60;
+    mix-blend-mode: overlay;
+    background-image:
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='.8'/%3E%3C/svg%3E");
+  }
+}
+
+@layer components {
+  .container-page {
+    @apply mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-8;
+  }
+}

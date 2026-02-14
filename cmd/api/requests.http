@@ -1,0 +1,7 @@
+POST http://localhost:8080/matches/154d339d-6d0c-4182-a35c-bd2ea670d377/submit
+Content-Type: application/json
+
+{
+  "player": "player1",
+  "code": "print('Hello, world!')"
+}

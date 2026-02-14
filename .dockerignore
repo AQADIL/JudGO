@@ -1,0 +1,29 @@
+.git
+.gitignore
+
+# Env / secrets
+.env
+.env.*
+config/serviceAccountKey.json
+
+# Build artifacts
+bin
+*.exe
+*.out
+
+# Frontend
+frontend/node_modules
+frontend/dist
+frontend/dist-ssr
+frontend/.env
+frontend/.env.*
+
+# Firebase local state
+.firebase
+
+# IDE
+.vscode
+.idea
+
+# Large local data
+trans.json

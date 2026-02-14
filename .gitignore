@@ -1,0 +1,41 @@
+config/serviceAccountKey.json
+
+# Env files
+.env
+.env.*
+!.env.example
+
+# Frontend env files
+frontend/.env
+frontend/.env.*
+!frontend/.env.example
+
+# Go build outputs
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+bin/
+
+# Node / frontend outputs
+frontend/node_modules/
+frontend/dist/
+frontend/dist-ssr/
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Firebase local state
+.firebase/
+
+# Local data / seeds
+trans.json
+
+# Unused local frontend docker stub
+frontend/DockerFile
