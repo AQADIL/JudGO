@@ -100,6 +100,11 @@ function Navigation() {
                   {item.label}
                 </option>
               ))}
+              {status !== 'auth' && (
+                <option value="/signin" className="bg-ink-900">
+                  Sign in
+                </option>
+              )}
             </select>
           </div>
         </div>
