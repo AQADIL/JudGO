@@ -72,6 +72,10 @@ export function adminProblems() {
   return apiFetch('/admin/problems', { method: 'GET' })
 }
 
+export function adminUserStats() {
+  return apiFetch('/admin/user-stats', { method: 'GET' })
+}
+
 export function createAdminProblem(problem) {
   return apiFetch('/admin/problems', {
     method: 'POST',

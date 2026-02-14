@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Routes, Route, Link, useLocation } from 'react-router-dom'
+import { Routes, Route, Link, Navigate, useLocation } from 'react-router-dom'
+
 import { motion } from 'framer-motion'
 import { Background3D } from './components/Background3D'
 import { BrandMark } from './components/BrandMark'
@@ -23,14 +24,19 @@ function Navigation() {
   const location = useLocation()
 
   const status = useAuthStore((s) => s.status)
+  const rulesAccepted = useAuthStore((s) => s.rulesAccepted)
   const logout = useAuthStore((s) => s.logout)
 
-  const navItems = [
-    { path: '/', label: 'Home' },
-    { path: '/dashboard', label: 'Dashboard' },
-    { path: '/arena', label: 'Arena' },
-    { path: '/admin', label: 'Admin' },
-  ]
+  const accepted = status === 'auth' && rulesAccepted
+
+  const navItems = accepted
+    ? [
+        { path: '/', label: 'Home' },
+        { path: '/dashboard', label: 'Dashboard' },
+        { path: '/arena', label: 'Arena' },
+        { path: '/admin', label: 'Admin' },
+      ]
+    : [{ path: '/', label: 'Home' }]
 
   return (
     <nav className="glass sticky top-0 z-40 backdrop-blur-xl border-b border-white/10">
@@ -70,7 +76,17 @@ function Navigation() {
               >
                 Logout
               </motion.button>
-            ) : null}
+            ) : (
+              <Link to="/signin">
+                <motion.div
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  className="ml-2 px-4 py-2 rounded-lg text-sm font-medium text-frost-200 hover:text-frost-50 hover:bg-white/5 transition-all"
+                >
+                  Sign in
+                </motion.div>
+              </Link>
+            )}
           </div>
 
           <div className="md:hidden">
@@ -93,7 +109,11 @@ function Navigation() {
 }
 
 function HomePage() {
-  const [accepted, setAccepted] = useState(false)
+  const status = useAuthStore((s) => s.status)
+  const rulesAccepted = useAuthStore((s) => s.rulesAccepted)
+  const acceptRules = useAuthStore((s) => s.acceptRules)
+
+  const accepted = status === 'auth' && rulesAccepted
   const [rulesOpen, setRulesOpen] = useState(false)
 
   return (
@@ -107,42 +127,43 @@ function HomePage() {
             <p className="text-xl text-frost-200 max-w-2xl mx-auto">Competitive programming platform</p>
           </div>
 
-          <div className="max-w-3xl mx-auto glass p-6 rounded-xl2 border border-white/10 text-left">
-            <div className="text-frost-50 font-semibold">Cheating is not allowed.</div>
-            <div className="mt-2 text-frost-200 text-sm">
-              Any attempt to copy solutions, use unfair automation, or share answers during live games may result in a ban.
-            </div>
-
-            <div className="mt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-              <label className="flex items-center gap-3 text-sm text-frost-100 select-none cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={accepted}
-                  onChange={(e) => setAccepted(e.target.checked)}
-                  className="h-4 w-4 accent-blue-500"
-                />
-                I understand and agree to the rules
-              </label>
-
-              <motion.button
-                whileTap={{ scale: 0.98 }}
-                type="button"
-                onClick={() => setRulesOpen((v) => !v)}
-                className="glass px-4 py-2 rounded-lg text-sm text-frost-50"
-              >
-                {rulesOpen ? 'Hide rules' : 'Show rules'}
-              </motion.button>
-            </div>
-
-            {rulesOpen ? (
-              <div className="mt-4 text-frost-200 text-sm text-left space-y-2">
-                <div>1) No copy-paste from external sources during games.</div>
-                <div>2) No sharing solutions or testcases with other players.</div>
-                <div>3) No bypassing time limits or manipulating requests.</div>
-                <div>4) Be respectful: no harassment, no abuse.</div>
+          {status === 'auth' && !accepted ? (
+            <div className="max-w-3xl mx-auto glass p-6 rounded-xl2 border border-white/10 text-left">
+              <div className="text-frost-50 font-semibold">Cheating is not allowed.</div>
+              <div className="mt-2 text-frost-200 text-sm">
+                Any attempt to copy solutions, use unfair automation, or share answers during live games may result in a ban.
               </div>
-            ) : null}
-          </div>
+
+              <div className="mt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <motion.button
+                  whileTap={{ scale: 0.98 }}
+                  type="button"
+                  onClick={acceptRules}
+                  className="glass-strong px-4 py-2 rounded-lg text-sm text-frost-50"
+                >
+                  I understand and agree
+                </motion.button>
+
+                <motion.button
+                  whileTap={{ scale: 0.98 }}
+                  type="button"
+                  onClick={() => setRulesOpen((v) => !v)}
+                  className="glass px-4 py-2 rounded-lg text-sm text-frost-50"
+                >
+                  {rulesOpen ? 'Hide rules' : 'Show rules'}
+                </motion.button>
+              </div>
+
+              {rulesOpen ? (
+                <div className="mt-4 text-frost-200 text-sm text-left space-y-2">
+                  <div>1) No copy-paste from external sources during games.</div>
+                  <div>2) No sharing solutions or testcases with other players.</div>
+                  <div>3) No bypassing time limits or manipulating requests.</div>
+                  <div>4) Be respectful: no harassment, no abuse.</div>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
 
           <div className="grid gap-4 md:grid-cols-3 max-w-4xl mx-auto">
 

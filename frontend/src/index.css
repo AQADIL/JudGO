@@ -17,6 +17,10 @@
     height: 100%;
   }
 
+  html {
+    font-size: 80%;
+  }
+
   body {
     @apply bg-ink-950 text-frost-50 font-pixel antialiased tracking-tight;
     margin: 0;

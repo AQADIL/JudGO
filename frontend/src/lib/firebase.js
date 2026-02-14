@@ -4,6 +4,7 @@ import {
   GoogleAuthProvider,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
+  sendPasswordResetEmail,
   signInWithPopup,
   signOut,
 } from 'firebase/auth'
@@ -37,4 +38,8 @@ export async function firebaseSignInGoogle() {
 
 export async function firebaseLogout() {
   return signOut(auth)
+}
+
+export async function firebaseSendPasswordReset(email) {
+  return sendPasswordResetEmail(auth, email)
 }

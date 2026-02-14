@@ -1,17 +1,25 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 
 import { BrandMark } from '../components/BrandMark'
 import { GlassCard } from '../components/GlassCard'
 import { firebaseSignUpEmail, firebaseSignInGoogle } from '../lib/firebase'
+import { useAuthStore } from '../stores/authStore'
 
 export function SignUp() {
   const navigate = useNavigate()
+  const status = useAuthStore((s) => s.status)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (status === 'auth') {
+      navigate('/dashboard', { replace: true })
+    }
+  }, [navigate, status])
 
   async function onSubmit(e) {
     e.preventDefault()
@@ -19,7 +27,7 @@ export function SignUp() {
     setLoading(true)
     try {
       await firebaseSignUpEmail(email, password)
-      navigate('/dashboard')
+      navigate('/dashboard', { replace: true })
     } catch (err) {
       setError(err?.message || 'Sign up failed')
     } finally {
@@ -32,7 +40,7 @@ export function SignUp() {
     setLoading(true)
     try {
       await firebaseSignInGoogle()
-      navigate('/dashboard')
+      navigate('/dashboard', { replace: true })
     } catch (err) {
       setError(err?.message || 'Google sign up failed')
     } finally {

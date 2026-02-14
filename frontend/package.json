@@ -18,9 +18,10 @@
     "lucide-react": "^0.563.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
+    "react-hot-toast": "^2.6.0",
     "react-qr-code": "^2.0.15",
-    "recharts": "^2.15.1",
     "react-router-dom": "^7.13.0",
+    "recharts": "^2.15.1",
     "three": "^0.182.0",
     "zustand": "^5.0.11"
   },

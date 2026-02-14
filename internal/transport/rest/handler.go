@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
 	"net/http"
 	"os"
 	"strings"
@@ -253,6 +254,112 @@ func (h *Handler) HandleAdminUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, users)
+}
+
+func (h *Handler) HandleAdminUserStats(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	if h.practiceRepo == nil {
+		h.writeError(w, http.StatusNotImplemented, "practice repository not configured")
+		return
+	}
+
+	// Get optional userID query param - if provided, return stats for specific user
+	userID := r.URL.Query().Get("userId")
+
+	// Get all users first
+	users, err := h.userRepo.List(r.Context())
+	if err != nil {
+		h.writeError(w, http.StatusInternalServerError, "failed to list users")
+		return
+	}
+
+	// Get problem difficulties for reference
+	probDifficulty := map[string]string{}
+	if h.problemSvc != nil {
+		if list, perr := h.problemSvc.ListAdmin(r.Context()); perr == nil {
+			for _, p := range list {
+				if p == nil {
+					continue
+				}
+				probDifficulty[p.ID] = string(p.Difficulty)
+			}
+		}
+	}
+
+	result := make([]map[string]interface{}, 0)
+
+	for _, u := range users {
+		// If specific user requested, skip others
+		if userID != "" && u.ID != userID {
+			continue
+		}
+
+		solved, err := h.practiceRepo.ListSolved(r.Context(), u.ID)
+		if err != nil {
+			continue
+		}
+
+		subs, err := h.practiceRepo.ListSubmissions(r.Context(), u.ID)
+		if err != nil {
+			continue
+		}
+
+		// Calculate stats
+		totalSubmissions := len(subs)
+		passedSubmissions := 0
+		subsByLanguage := map[string]int{}
+		attemptsByProblem := map[string]int{}
+
+		for _, s := range subs {
+			if s.Passed {
+				passedSubmissions++
+			}
+			l := strings.ToUpper(strings.TrimSpace(s.Language))
+			if l == "" {
+				l = "UNKNOWN"
+			}
+			subsByLanguage[l]++
+			attemptsByProblem[s.ProblemID]++
+		}
+
+		// Build solved problems details
+		solvedProblems := make([]map[string]interface{}, 0)
+		for pid, rec := range solved {
+			solvedProblems = append(solvedProblems, map[string]interface{}{
+				"problemId":       pid,
+				"difficulty":      probDifficulty[pid],
+				"attemptsToSolve": rec.AttemptsToSolve,
+				"solvedAt":        rec.SolvedAt,
+			})
+		}
+
+		// Calculate success rate
+		successRate := 0.0
+		if totalSubmissions > 0 {
+			successRate = float64(passedSubmissions) / float64(totalSubmissions) * 100
+		}
+
+		userStats := map[string]interface{}{
+			"userId":                u.ID,
+			"email":                 u.Email,
+			"displayName":           u.DisplayName,
+			"role":                  u.Role,
+			"totalSubmissions":      totalSubmissions,
+			"passedCount":           passedSubmissions,
+			"solvedCount":           len(solved),
+			"successRate":           math.Round(successRate*100) / 100,
+			"submissionsByLanguage": subsByLanguage,
+			"solvedProblems":        solvedProblems,
+			"joinedAt":              u.CreatedAt,
+		}
+
+		result = append(result, userStats)
+	}
+
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (h *Handler) HandleAdminProblems(w http.ResponseWriter, r *http.Request) {

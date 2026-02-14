@@ -1,25 +1,35 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 
 import { BrandMark } from '../components/BrandMark'
 import { GlassCard } from '../components/GlassCard'
-import { firebaseSignInEmail, firebaseSignInGoogle } from '../lib/firebase'
+import { firebaseSendPasswordReset, firebaseSignInEmail, firebaseSignInGoogle } from '../lib/firebase'
+import { useAuthStore } from '../stores/authStore'
 
 export function SignIn() {
   const navigate = useNavigate()
+  const status = useAuthStore((s) => s.status)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
+  const [info, setInfo] = useState('')
   const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (status === 'auth') {
+      navigate('/', { replace: true })
+    }
+  }, [navigate, status])
 
   async function onSubmit(e) {
     e.preventDefault()
     setError('')
+    setInfo('')
     setLoading(true)
     try {
       await firebaseSignInEmail(email, password)
-      navigate('/dashboard')
+      navigate('/', { replace: true })
     } catch (err) {
       setError(err?.message || 'Sign in failed')
     } finally {
@@ -29,12 +39,37 @@ export function SignIn() {
 
   async function onGoogle() {
     setError('')
+    setInfo('')
     setLoading(true)
     try {
       await firebaseSignInGoogle()
-      navigate('/dashboard')
+      navigate('/', { replace: true })
     } catch (err) {
       setError(err?.message || 'Google sign in failed')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function onForgotPassword() {
+    const e = String(email || '').trim()
+    if (!e) {
+      setError('Enter your email first')
+      return
+    }
+    setError('')
+    setInfo('')
+    setLoading(true)
+    try {
+      await firebaseSendPasswordReset(e)
+      setInfo('Password reset email sent. Check your inbox and spam folder.')
+    } catch (err) {
+      const errorCode = err?.code || ''
+      if (errorCode.includes('user-not-found') || errorCode.includes('auth/user-not-found')) {
+        setError('No account found with this email address')
+      } else {
+        setError(err?.message || 'Failed to send reset email')
+      }
     } finally {
       setLoading(false)
     }
@@ -58,6 +93,12 @@ export function SignIn() {
               {error ? (
                 <div className="glass px-3 py-2 rounded-lg text-sm text-red-200 border border-red-500/20">
                   {error}
+                </div>
+              ) : null}
+
+              {info ? (
+                <div className="glass px-3 py-2 rounded-lg text-sm text-green-200 border border-green-500/20">
+                  {info}
                 </div>
               ) : null}
 
@@ -85,6 +126,15 @@ export function SignIn() {
                   Continue
                 </motion.button>
               </form>
+
+              <button
+                type="button"
+                disabled={loading}
+                onClick={onForgotPassword}
+                className="w-full text-xs text-frost-200 hover:text-frost-50 underline disabled:opacity-60"
+              >
+                Forgot password?
+              </button>
 
               <motion.button
                 whileTap={{ scale: 0.98 }}
