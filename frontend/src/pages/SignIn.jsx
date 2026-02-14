@@ -83,9 +83,8 @@ export function SignIn() {
   }
 
   return (
-    <div className="min-h-screen flex items-center">
-      <div className="container-page py-10">
-        <div className="max-w-md mx-auto space-y-6">
+    <div className="min-h-screen overflow-y-auto py-6 px-4">
+      <div className="max-w-md mx-auto space-y-6 pt-4">
           <div className="flex justify-center">
             <BrandMark />
           </div>
@@ -161,7 +160,6 @@ export function SignIn() {
             </div>
           </GlassCard>
         </div>
-      </div>
     </div>
   )
 }
