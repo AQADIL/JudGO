@@ -2,6 +2,8 @@
 
 JudGO is a competitive programming platform built for real-time play.
 
+[![Go Report Card](https://goreportcard.com/badge/github.com/AQADIL/JudGO)](https://goreportcard.com/report/github.com/AQADIL/JudGO)
+
 It combines:
 
 - A fast Go backend (Clean Architecture)
