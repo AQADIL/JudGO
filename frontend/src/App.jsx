@@ -175,48 +175,75 @@ function HomePage() {
             </div>
           ) : null}
 
-          <div className="grid gap-4 md:grid-cols-3 max-w-4xl mx-auto">
-
-            <motion.div
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-            >
-              <Link to={accepted ? '/dashboard' : '#'} className="block" onClick={(e) => { if (!accepted) e.preventDefault() }}>
-                <div className={`glass p-6 rounded-xl2 text-center space-y-4 ${accepted ? '' : 'opacity-50'}`}>
-                  <h3 className="text-lg font-semibold text-frost-50">Dashboard</h3>
-                  <p className="text-sm text-frost-200">Your stats and activity</p>
-                  {!accepted ? <div className="text-xs text-frost-300">Accept rules to continue</div> : null}
-                </div>
-              </Link>
-            </motion.div>
-
-            <motion.div
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-            >
-              <Link to={accepted ? '/arena' : '#'} className="block" onClick={(e) => { if (!accepted) e.preventDefault() }}>
-                <div className={`glass p-6 rounded-xl2 text-center space-y-4 ${accepted ? '' : 'opacity-50'}`}>
-                  <h3 className="text-lg font-semibold text-frost-50">Arena</h3>
-                  <p className="text-sm text-frost-200">Solo bot and multiplayer rooms</p>
-                  {!accepted ? <div className="text-xs text-frost-300">Accept rules to continue</div> : null}
-                </div>
-              </Link>
-            </motion.div>
-
-            {isAdmin ? (
-              <motion.div
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-              >
-                <Link to={accepted ? '/admin' : '#'} className="block" onClick={(e) => { if (!accepted) e.preventDefault() }}>
-                  <div className={`glass p-6 rounded-xl2 text-center space-y-4 ${accepted ? '' : 'opacity-50'}`}>
-                    <h3 className="text-lg font-semibold text-frost-50">Admin Panel</h3>
-                    <p className="text-sm text-frost-200">Manage problems and users</p>
-                    {!accepted ? <div className="text-xs text-frost-300">Accept rules to continue</div> : null}
+          <div className="max-w-5xl mx-auto w-full">
+            <div className="grid gap-4 md:grid-cols-2">
+              <motion.div whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.99 }}>
+                <Link
+                  to={accepted ? '/arena' : '#'}
+                  className="block"
+                  onClick={(e) => {
+                    if (!accepted) e.preventDefault()
+                  }}
+                >
+                  <div className={`glass rounded-xl2 border border-white/10 overflow-hidden p-6 text-left ${accepted ? '' : 'opacity-55'}`}>
+                    <div className="text-frost-200 text-xs tracking-widest">PLAY</div>
+                    <div className="mt-2 text-2xl font-semibold text-frost-50">Arena</div>
+                    <div className="mt-2 text-sm text-frost-200">Solo bot battles and multiplayer rooms.</div>
+                    {!accepted ? <div className="mt-3 text-xs text-frost-300">Accept rules to unlock</div> : null}
                   </div>
                 </Link>
               </motion.div>
-            ) : null}
+
+              <motion.div whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.99 }}>
+                <Link
+                  to={accepted ? '/dashboard' : '#'}
+                  className="block"
+                  onClick={(e) => {
+                    if (!accepted) e.preventDefault()
+                  }}
+                >
+                  <div className={`glass rounded-xl2 border border-white/10 overflow-hidden p-6 text-left ${accepted ? '' : 'opacity-55'}`}>
+                    <div className="text-frost-200 text-xs tracking-widest">TRACK</div>
+                    <div className="mt-2 text-2xl font-semibold text-frost-50">Dashboard</div>
+                    <div className="mt-2 text-sm text-frost-200">Your stats, solved count, and activity.</div>
+                    {!accepted ? <div className="mt-3 text-xs text-frost-300">Accept rules to unlock</div> : null}
+                  </div>
+                </Link>
+              </motion.div>
+            </div>
+
+            <div className={`mt-4 grid gap-4 ${isAdmin ? 'md:grid-cols-2' : 'md:grid-cols-1'}`}>
+              {status === 'auth' ? (
+                <motion.div whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.99 }}>
+                  <Link to="/profile" className="block">
+                    <div className="glass rounded-xl2 border border-white/10 overflow-hidden p-6 text-left">
+                      <div className="text-frost-200 text-xs tracking-widest">ACCOUNT</div>
+                      <div className="mt-2 text-xl font-semibold text-frost-50">Profile</div>
+                      <div className="mt-2 text-sm text-frost-200">Nickname, role, and logout.</div>
+                    </div>
+                  </Link>
+                </motion.div>
+              ) : null}
+
+              {isAdmin ? (
+                <motion.div whileHover={{ scale: accepted ? 1.01 : 1.0 }} whileTap={{ scale: accepted ? 0.99 : 1.0 }}>
+                  <Link
+                    to={accepted ? '/admin' : '#'}
+                    className="block"
+                    onClick={(e) => {
+                      if (!accepted) e.preventDefault()
+                    }}
+                  >
+                    <div className={`glass rounded-xl2 border border-white/10 overflow-hidden p-6 text-left ${accepted ? '' : 'opacity-55'}`}>
+                      <div className="text-frost-200 text-xs tracking-widest">CONTROL</div>
+                      <div className="mt-2 text-xl font-semibold text-frost-50">Admin Panel</div>
+                      <div className="mt-2 text-sm text-frost-200">Problems and user management.</div>
+                      {!accepted ? <div className="mt-3 text-xs text-frost-300">Accept rules to unlock</div> : null}
+                    </div>
+                  </Link>
+                </motion.div>
+              ) : null}
+            </div>
           </div>
         </div>
       </main>
