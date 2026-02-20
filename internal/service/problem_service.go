@@ -90,6 +90,9 @@ func (s *ProblemService) GetPublic(ctx context.Context, id string) (*domain.Prob
 	if p == nil {
 		return nil, fmt.Errorf("problem not found")
 	}
+	if p.Status != domain.ProblemStatusPublished {
+		return nil, fmt.Errorf("problem not found")
+	}
 
 	cp := *p
 	if len(p.TestCases) > 0 {
@@ -103,6 +106,26 @@ func (s *ProblemService) GetPublic(ctx context.Context, id string) (*domain.Prob
 		cp.TestCases = filtered
 	}
 	return &cp, nil
+}
+
+func (s *ProblemService) ListPublic(ctx context.Context) ([]*domain.Problem, error) {
+	items, err := s.repo.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*domain.Problem, 0, len(items))
+	for _, p := range items {
+		if p == nil {
+			continue
+		}
+		if p.Status != domain.ProblemStatusPublished {
+			continue
+		}
+		cp := *p
+		cp.TestCases = nil
+		out = append(out, &cp)
+	}
+	return out, nil
 }
 
 func (s *ProblemService) ListAdmin(ctx context.Context) ([]*domain.Problem, error) {

@@ -26,17 +26,20 @@ function Navigation() {
 
   const status = useAuthStore((s) => s.status)
   const rulesAccepted = useAuthStore((s) => s.rulesAccepted)
+  const profile = useAuthStore((s) => s.profile)
 
   const accepted = status === 'auth' && rulesAccepted
 
   const hasAuth = status === 'auth'
+
+  const isAdmin = String(profile?.role || '').toUpperCase() === 'ADMIN'
 
   const navItems = accepted
     ? [
         { path: '/', label: 'Home' },
         { path: '/dashboard', label: 'Dashboard' },
         { path: '/arena', label: 'Arena' },
-        { path: '/admin', label: 'Admin' },
+        ...(isAdmin ? [{ path: '/admin', label: 'Admin' }] : []),
         { path: '/profile', label: 'Profile' },
       ]
     : hasAuth
@@ -116,9 +119,12 @@ function HomePage() {
   const status = useAuthStore((s) => s.status)
   const rulesAccepted = useAuthStore((s) => s.rulesAccepted)
   const acceptRules = useAuthStore((s) => s.acceptRules)
+  const profile = useAuthStore((s) => s.profile)
 
   const accepted = status === 'auth' && rulesAccepted
   const [rulesOpen, setRulesOpen] = useState(false)
+
+  const isAdmin = String(profile?.role || '').toUpperCase() === 'ADMIN'
 
   return (
     <div className="min-h-screen">
@@ -197,18 +203,20 @@ function HomePage() {
               </Link>
             </motion.div>
 
-            <motion.div
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-            >
-              <Link to={accepted ? '/admin' : '#'} className="block" onClick={(e) => { if (!accepted) e.preventDefault() }}>
-                <div className={`glass p-6 rounded-xl2 text-center space-y-4 ${accepted ? '' : 'opacity-50'}`}>
-                  <h3 className="text-lg font-semibold text-frost-50">Admin Panel</h3>
-                  <p className="text-sm text-frost-200">Manage problems and users</p>
-                  {!accepted ? <div className="text-xs text-frost-300">Accept rules to continue</div> : null}
-                </div>
-              </Link>
-            </motion.div>
+            {isAdmin ? (
+              <motion.div
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+              >
+                <Link to={accepted ? '/admin' : '#'} className="block" onClick={(e) => { if (!accepted) e.preventDefault() }}>
+                  <div className={`glass p-6 rounded-xl2 text-center space-y-4 ${accepted ? '' : 'opacity-50'}`}>
+                    <h3 className="text-lg font-semibold text-frost-50">Admin Panel</h3>
+                    <p className="text-sm text-frost-200">Manage problems and users</p>
+                    {!accepted ? <div className="text-xs text-frost-300">Accept rules to continue</div> : null}
+                  </div>
+                </Link>
+              </motion.div>
+            ) : null}
           </div>
         </div>
       </main>

@@ -497,6 +497,26 @@ func (h *Handler) HandleAdminProblems(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, created)
 }
 
+func (h *Handler) HandlePublicProblems(w http.ResponseWriter, r *http.Request) {
+	if !h.handleCORS(w, r) {
+		return
+	}
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	if h.problemSvc == nil {
+		h.writeError(w, http.StatusNotImplemented, "problem service not configured")
+		return
+	}
+	items, err := h.problemSvc.ListPublic(r.Context())
+	if err != nil {
+		h.writeError(w, http.StatusInternalServerError, "failed to list problems")
+		return
+	}
+	writeJSON(w, http.StatusOK, items)
+}
+
 func (h *Handler) HandlePublicProblem(w http.ResponseWriter, r *http.Request) {
 	if !h.handleCORS(w, r) {
 		return

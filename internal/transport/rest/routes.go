@@ -12,6 +12,7 @@ func RegisterRoutes(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("/admin/user-stats", h.FirebaseAuthRequired(h.AdminOnly(h.HandleAdminUserStats)))
 	mux.HandleFunc("/admin/user-submissions", h.FirebaseAuthRequired(h.AdminOnly(h.HandleAdminUserSubmissions)))
 
+	mux.HandleFunc("/problems", h.HandlePublicProblems)
 	mux.HandleFunc("/problems/", h.HandlePublicProblem)
 	mux.HandleFunc("/submissions", h.FirebaseAuthRequired(h.HandleSubmissions))
 

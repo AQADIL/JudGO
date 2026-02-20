@@ -94,6 +94,10 @@ export function createAdminProblem(problem) {
   })
 }
 
+export function publicProblems() {
+  return apiFetch('/problems', { method: 'GET' })
+}
+
 export function getProblem(id) {
   return apiFetch(`/problems/${id}`, { method: 'GET' })
 }

@@ -79,4 +79,4 @@ If you want to use any part of this project, request explicit permission from th
 
 ---
 
- 2026 JudGO. All rights reserved.
+ 2026 JudGO. All rights reserved. Made with LOVE 💕

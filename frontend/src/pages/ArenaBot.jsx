@@ -4,7 +4,7 @@ import { motion } from 'framer-motion'
 import { RotateCcw, Send, Trophy } from 'lucide-react'
 import { GlassCard } from '../components/GlassCard'
 import { MonacoEditor } from '../components/MonacoEditor'
-import { createSubmission, getProblem, adminProblems } from '../services/api'
+import { createSubmission, getProblem, publicProblems } from '../services/api'
 import { useAuthStore } from '../stores/authStore'
 import { playSfx } from '../lib/sfxEvents'
 import fnafImg from '../assets/fnaf.jpg'
@@ -106,10 +106,8 @@ export function ArenaBot() {
     async function load() {
       setLoadingProblems(true)
       try {
-        const list = await adminProblems().catch(() => [])
-        const published = (Array.isArray(list) ? list : []).filter(
-          (p) => p?.status === 'PUBLISHED'
-        )
+        const list = await publicProblems().catch(() => [])
+        const published = (Array.isArray(list) ? list : []).filter((p) => p?.status === 'PUBLISHED')
         if (!cancelled) {
           setProblems(published)
           if (published[0]?.id) setSelectedProblemId(published[0].id)
