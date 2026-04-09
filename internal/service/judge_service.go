@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 	"unicode"
 )
@@ -39,9 +41,45 @@ type JudgeResult struct {
 	Results   []TestcaseResult `json:"results"`
 }
 
+type JudgeMetricsSnapshot struct {
+	Enabled           bool      `json:"enabled"`
+	ActiveSandboxes   int64     `json:"activeSandboxes"`
+	TotalRuns         int64     `json:"totalRuns"`
+	SuccessfulRuns    int64     `json:"successfulRuns"`
+	FailedRuns        int64     `json:"failedRuns"`
+	SuccessRatePct    float64   `json:"successRatePct"`
+	CompileErrors     int64     `json:"compileErrors"`
+	RuntimeErrors     int64     `json:"runtimeErrors"`
+	TimeLimitExceeded int64     `json:"timeLimitExceeded"`
+	CompileAvgMs      float64   `json:"compileAvgMs"`
+	CompileP95Ms      float64   `json:"compileP95Ms"`
+	JudgeAvgMs        float64   `json:"judgeAvgMs"`
+	JudgeP95Ms        float64   `json:"judgeP95Ms"`
+	LastDurationMs    float64   `json:"lastDurationMs"`
+	LastCompileMs     float64   `json:"lastCompileMs"`
+	LastResultAt      time.Time `json:"lastResultAt"`
+}
+
 type JudgeService struct {
 	problems *ProblemService
 	devMode  bool
+	metrics  judgeMetrics
+}
+
+type judgeMetrics struct {
+	activeSandboxes   int64
+	totalRuns         int64
+	successfulRuns    int64
+	failedRuns        int64
+	compileErrors     int64
+	runtimeErrors     int64
+	timeLimitExceeded int64
+	lastDurationNs    int64
+	lastCompileNs     int64
+	lastResultAtNs    int64
+	mu                sync.Mutex
+	compileSamples    []float64
+	judgeSamples      []float64
 }
 
 func NewJudgeService(problems *ProblemService) *JudgeService {
@@ -53,6 +91,48 @@ func NewJudgeService(problems *ProblemService) *JudgeService {
 func normalizeOutput(s string) string {
 	s = strings.ReplaceAll(s, "\r\n", "\n")
 	return strings.TrimRightFunc(s, unicode.IsSpace)
+}
+
+func (s *JudgeService) MetricsSnapshot() JudgeMetricsSnapshot {
+	totalRuns := atomic.LoadInt64(&s.metrics.totalRuns)
+	successfulRuns := atomic.LoadInt64(&s.metrics.successfulRuns)
+	failedRuns := atomic.LoadInt64(&s.metrics.failedRuns)
+	compileErrors := atomic.LoadInt64(&s.metrics.compileErrors)
+	runtimeErrors := atomic.LoadInt64(&s.metrics.runtimeErrors)
+	timeLimitExceeded := atomic.LoadInt64(&s.metrics.timeLimitExceeded)
+	lastDurationMs := float64(atomic.LoadInt64(&s.metrics.lastDurationNs)) / float64(time.Millisecond)
+	lastCompileMs := float64(atomic.LoadInt64(&s.metrics.lastCompileNs)) / float64(time.Millisecond)
+	lastResultAtNs := atomic.LoadInt64(&s.metrics.lastResultAtNs)
+	lastResultAt := time.Time{}
+	if lastResultAtNs > 0 {
+		lastResultAt = time.Unix(0, lastResultAtNs).UTC()
+	}
+	s.metrics.mu.Lock()
+	compileSamples := append([]float64(nil), s.metrics.compileSamples...)
+	judgeSamples := append([]float64(nil), s.metrics.judgeSamples...)
+	s.metrics.mu.Unlock()
+	successRate := 0.0
+	if totalRuns > 0 {
+		successRate = float64(successfulRuns) / float64(totalRuns) * 100
+	}
+	return JudgeMetricsSnapshot{
+		Enabled:           s.devMode,
+		ActiveSandboxes:   atomic.LoadInt64(&s.metrics.activeSandboxes),
+		TotalRuns:         totalRuns,
+		SuccessfulRuns:    successfulRuns,
+		FailedRuns:        failedRuns,
+		SuccessRatePct:    round2(successRate),
+		CompileErrors:     compileErrors,
+		RuntimeErrors:     runtimeErrors,
+		TimeLimitExceeded: timeLimitExceeded,
+		CompileAvgMs:      round2(averageFloat64(compileSamples)),
+		CompileP95Ms:      round2(computePercentile(compileSamples, 0.95)),
+		JudgeAvgMs:        round2(averageFloat64(judgeSamples)),
+		JudgeP95Ms:        round2(computePercentile(judgeSamples, 0.95)),
+		LastDurationMs:    round2(lastDurationMs),
+		LastCompileMs:     round2(lastCompileMs),
+		LastResultAt:      lastResultAt,
+	}
 }
 
 func (s *JudgeService) Judge(ctx context.Context, problemID string, lang JudgeLanguage, code string, timeout time.Duration) (*JudgeResult, error) {
@@ -82,10 +162,15 @@ func (s *JudgeService) Judge(ctx context.Context, problemID string, lang JudgeLa
 		return nil, fmt.Errorf("problem has no testCases")
 	}
 
+	judgeStartedAt := time.Now()
+
 	workDir, err := os.MkdirTemp("", "judgo-judge-*")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create temp dir: %w", err)
 	}
+	atomic.AddInt64(&s.metrics.activeSandboxes, 1)
+	atomic.AddInt64(&s.metrics.totalRuns, 1)
+	defer atomic.AddInt64(&s.metrics.activeSandboxes, -1)
 	defer os.RemoveAll(workDir)
 
 	switch lang {
@@ -101,8 +186,9 @@ func (s *JudgeService) Judge(ctx context.Context, problemID string, lang JudgeLa
 		return nil, fmt.Errorf("unsupported language: %s", lang)
 	}
 
-	goBin, err := s.buildGoBinary(ctx, workDir, lang, timeout)
+	goBin, compileDuration, err := s.buildGoBinary(ctx, workDir, lang, timeout)
 	if err != nil {
+		s.observeJudgeFailure(err, time.Since(judgeStartedAt), compileDuration)
 		return nil, err
 	}
 
@@ -114,6 +200,8 @@ func (s *JudgeService) Judge(ctx context.Context, problemID string, lang JudgeLa
 		Results:   make([]TestcaseResult, 0, len(p.TestCases)),
 	}
 
+	hadRuntimeError := false
+	hadTimeLimitExceeded := false
 	for i, tc := range p.TestCases {
 		start := time.Now()
 		out, runErr := s.runOnce(ctx, workDir, lang, goBin, tc.Input, timeout)
@@ -131,6 +219,11 @@ func (s *JudgeService) Judge(ctx context.Context, problemID string, lang JudgeLa
 		}
 		if runErr != nil {
 			tr.Error = runErr.Error()
+			if strings.Contains(strings.ToLower(runErr.Error()), "time limit exceeded") {
+				hadTimeLimitExceeded = true
+			} else {
+				hadRuntimeError = true
+			}
 		}
 		if !tc.IsHidden {
 			tr.Output = nOut
@@ -144,12 +237,15 @@ func (s *JudgeService) Judge(ctx context.Context, problemID string, lang JudgeLa
 		}
 	}
 
+	s.observeJudgeCompletion(res.Passed, time.Since(judgeStartedAt), compileDuration, hadRuntimeError, hadTimeLimitExceeded)
+
 	return res, nil
 }
 
-func (s *JudgeService) buildGoBinary(ctx context.Context, workDir string, lang JudgeLanguage, timeout time.Duration) (string, error) {
+func (s *JudgeService) buildGoBinary(ctx context.Context, workDir string, lang JudgeLanguage, timeout time.Duration) (string, time.Duration, error) {
+	startedAt := time.Now()
 	if lang != JudgeLanguageGo {
-		return "", nil
+		return "", 0, nil
 	}
 	// go run per testcase is too slow on Windows; compile once then execute.
 	binName := "main_bin"
@@ -175,16 +271,66 @@ func (s *JudgeService) buildGoBinary(ctx context.Context, workDir string, lang J
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		if bctx.Err() == context.DeadlineExceeded {
-			return "", fmt.Errorf("compile time limit exceeded")
+			return "", time.Since(startedAt), fmt.Errorf("compile time limit exceeded")
 		}
 		errMsg := strings.TrimSpace(string(out))
 		if errMsg == "" {
 			errMsg = err.Error()
 		}
-		return "", fmt.Errorf("compile error: %s", errMsg)
+		return "", time.Since(startedAt), fmt.Errorf("compile error: %s", errMsg)
 	}
 
-	return binPath, nil
+	return binPath, time.Since(startedAt), nil
+}
+
+func (s *JudgeService) observeJudgeFailure(err error, duration time.Duration, compileDuration time.Duration) {
+	atomic.AddInt64(&s.metrics.failedRuns, 1)
+	lower := strings.ToLower(strings.TrimSpace(err.Error()))
+	if strings.Contains(lower, "compile") {
+		atomic.AddInt64(&s.metrics.compileErrors, 1)
+	}
+	if strings.Contains(lower, "runtime error") {
+		atomic.AddInt64(&s.metrics.runtimeErrors, 1)
+	}
+	if strings.Contains(lower, "time limit exceeded") {
+		atomic.AddInt64(&s.metrics.timeLimitExceeded, 1)
+	}
+	s.observeJudgeDurations(duration, compileDuration)
+}
+
+func (s *JudgeService) observeJudgeCompletion(passed bool, duration time.Duration, compileDuration time.Duration, hadRuntimeError bool, hadTimeLimitExceeded bool) {
+	if passed {
+		atomic.AddInt64(&s.metrics.successfulRuns, 1)
+	} else {
+		atomic.AddInt64(&s.metrics.failedRuns, 1)
+	}
+	if hadRuntimeError {
+		atomic.AddInt64(&s.metrics.runtimeErrors, 1)
+	}
+	if hadTimeLimitExceeded {
+		atomic.AddInt64(&s.metrics.timeLimitExceeded, 1)
+	}
+	s.observeJudgeDurations(duration, compileDuration)
+}
+
+func (s *JudgeService) observeJudgeDurations(duration time.Duration, compileDuration time.Duration) {
+	atomic.StoreInt64(&s.metrics.lastDurationNs, duration.Nanoseconds())
+	atomic.StoreInt64(&s.metrics.lastCompileNs, compileDuration.Nanoseconds())
+	atomic.StoreInt64(&s.metrics.lastResultAtNs, time.Now().UTC().UnixNano())
+	s.metrics.mu.Lock()
+	if compileDuration > 0 {
+		s.metrics.compileSamples = appendWindowedSample(s.metrics.compileSamples, float64(compileDuration)/float64(time.Millisecond), 120)
+	}
+	s.metrics.judgeSamples = appendWindowedSample(s.metrics.judgeSamples, float64(duration)/float64(time.Millisecond), 120)
+	s.metrics.mu.Unlock()
+}
+
+func appendWindowedSample(samples []float64, value float64, limit int) []float64 {
+	samples = append(samples, value)
+	if len(samples) <= limit {
+		return samples
+	}
+	return append([]float64(nil), samples[len(samples)-limit:]...)
 }
 
 func (s *JudgeService) runOnce(ctx context.Context, workDir string, lang JudgeLanguage, goBin string, stdin string, timeout time.Duration) (string, error) {

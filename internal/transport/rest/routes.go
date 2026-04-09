@@ -7,6 +7,7 @@ func RegisterRoutes(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("/profile", h.FirebaseAuthRequired(h.HandleProfileUpdate))
 	mux.HandleFunc("/me", h.FirebaseAuthRequired(h.HandleMeFirebase))
 	mux.HandleFunc("/dashboard/stats", h.FirebaseAuthRequired(h.HandleDashboardStats))
+	mux.HandleFunc("/admin/ops/metrics", h.FirebaseAuthRequired(h.AdminOnly(h.HandleAdminOpsMetrics)))
 	mux.HandleFunc("/admin/users", h.FirebaseAuthRequired(h.AdminOnly(h.HandleAdminUsers)))
 	mux.HandleFunc("/admin/problems", h.FirebaseAuthRequired(h.AdminOnly(h.HandleAdminProblems)))
 	mux.HandleFunc("/admin/user-stats", h.FirebaseAuthRequired(h.AdminOnly(h.HandleAdminUserStats)))

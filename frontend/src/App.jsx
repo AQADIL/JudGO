@@ -5,6 +5,7 @@ import { motion } from 'framer-motion'
 import { Background3D } from './components/Background3D'
 import { BrandMark } from './components/BrandMark'
 import { RequireAdmin, RequireAuth } from './components/RequireAuth'
+import { AdminDashboard } from './pages/AdminDashboard'
 import { AdminPanel } from './pages/AdminPanel'
 import { ArenaBot } from './pages/ArenaBot'
 import { ArenaRooms } from './pages/ArenaRooms'
@@ -39,7 +40,7 @@ function Navigation() {
         { path: '/', label: 'Home' },
         { path: '/dashboard', label: 'Dashboard' },
         { path: '/arena', label: 'Arena' },
-        ...(isAdmin ? [{ path: '/admin', label: 'Admin' }] : []),
+        ...(isAdmin ? [{ path: '/admin/dashboard', label: 'SRE' }] : []),
         { path: '/profile', label: 'Profile' },
       ]
     : hasAuth
@@ -228,7 +229,7 @@ function HomePage() {
               {isAdmin ? (
                 <motion.div whileHover={{ scale: accepted ? 1.01 : 1.0 }} whileTap={{ scale: accepted ? 0.99 : 1.0 }}>
                   <Link
-                    to={accepted ? '/admin' : '#'}
+                    to={accepted ? '/admin/dashboard' : '#'}
                     className="block"
                     onClick={(e) => {
                       if (!accepted) e.preventDefault()
@@ -236,8 +237,8 @@ function HomePage() {
                   >
                     <div className={`glass rounded-xl2 border border-white/10 overflow-hidden p-6 text-left ${accepted ? '' : 'opacity-55'}`}>
                       <div className="text-frost-200 text-xs tracking-widest">CONTROL</div>
-                      <div className="mt-2 text-xl font-semibold text-frost-50">Admin Panel</div>
-                      <div className="mt-2 text-sm text-frost-200">Problems and user management.</div>
+                      <div className="mt-2 text-xl font-semibold text-frost-50">SRE Command Center</div>
+                      <div className="mt-2 text-sm text-frost-200">Live ops, runbooks, alerts, and infrastructure telemetry.</div>
                       {!accepted ? <div className="mt-3 text-xs text-frost-300">Accept rules to unlock</div> : null}
                     </div>
                   </Link>
@@ -351,6 +352,14 @@ function App() {
           element={
             <RequireAuth>
               <DuelArena />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/admin/dashboard"
+          element={
+            <RequireAuth>
+              <AdminDashboard />
             </RequireAuth>
           }
         />

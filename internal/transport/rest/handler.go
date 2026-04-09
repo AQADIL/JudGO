@@ -7,6 +7,7 @@ import (
 	"log"
 	"math"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -24,14 +25,15 @@ type Handler struct {
 	roomGameSvc  *service.RoomGameService
 	problemSvc   *service.ProblemService
 	judgeSvc     *service.JudgeService
+	opsSvc       *service.OpsService
 	authService  *service.AuthService
 	fbAuth       *auth.Client
 	userRepo     firebaseRepo.UserRepository
 	practiceRepo firebaseRepo.PracticeRepository
 }
 
-func NewHandler(ms *service.MatchService, rs *service.RoomService, rgs *service.RoomGameService, ps *service.ProblemService, js *service.JudgeService, as *service.AuthService, fbAuth *auth.Client, userRepo firebaseRepo.UserRepository, practiceRepo firebaseRepo.PracticeRepository) *Handler {
-	return &Handler{matchService: ms, roomService: rs, roomGameSvc: rgs, problemSvc: ps, judgeSvc: js, authService: as, fbAuth: fbAuth, userRepo: userRepo, practiceRepo: practiceRepo}
+func NewHandler(ms *service.MatchService, rs *service.RoomService, rgs *service.RoomGameService, ps *service.ProblemService, js *service.JudgeService, ops *service.OpsService, as *service.AuthService, fbAuth *auth.Client, userRepo firebaseRepo.UserRepository, practiceRepo firebaseRepo.PracticeRepository) *Handler {
+	return &Handler{matchService: ms, roomService: rs, roomGameSvc: rgs, problemSvc: ps, judgeSvc: js, opsSvc: ops, authService: as, fbAuth: fbAuth, userRepo: userRepo, practiceRepo: practiceRepo}
 }
 
 type createMatchRequest struct {
@@ -1094,10 +1096,6 @@ func (h *Handler) handleCORS(w http.ResponseWriter, r *http.Request) bool {
 	allowed := os.Getenv("CORS_ORIGIN")
 	reqOrigin := r.Header.Get("Origin")
 
-	// Dev-friendly defaults:
-	// - empty: allow localhost:5173 and any same-lan origin (http://<ip>:5173)
-	// - '*': reflect request origin (best for dev with Authorization header)
-	// - comma-separated list: exact match
 	allowOrigin := ""
 	if allowed == "*" {
 		allowOrigin = reqOrigin
@@ -1110,9 +1108,10 @@ func (h *Handler) handleCORS(w http.ResponseWriter, r *http.Request) bool {
 				break
 			}
 		}
+		if allowOrigin == "" && isLocalDevOrigin(reqOrigin) {
+			allowOrigin = reqOrigin
+		}
 	} else {
-		// Default dev mode: reflect request origin (works for localhost and LAN IPs).
-		// This is safe for local development; in production set CORS_ORIGIN explicitly.
 		if reqOrigin != "" {
 			allowOrigin = reqOrigin
 		}
@@ -1130,6 +1129,18 @@ func (h *Handler) handleCORS(w http.ResponseWriter, r *http.Request) bool {
 		return false
 	}
 	return true
+}
+
+func isLocalDevOrigin(origin string) bool {
+	if strings.TrimSpace(origin) == "" {
+		return false
+	}
+	parsed, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(parsed.Hostname())
+	return host == "localhost" || host == "127.0.0.1"
 }
 
 func (h *Handler) HandleCreateMatch(w http.ResponseWriter, r *http.Request) {
@@ -1277,7 +1288,22 @@ func (h *Handler) handleSubmit(w http.ResponseWriter, r *http.Request, matchID s
 	})
 }
 
-// Вспомогательные функции для JSON.
+func (h *Handler) HandleAdminOpsMetrics(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	if h.opsSvc == nil {
+		h.writeError(w, http.StatusNotImplemented, "ops service not configured")
+		return
+	}
+	snapshot, err := h.opsSvc.Snapshot(r.Context())
+	if err != nil {
+		h.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, snapshot)
+}
 
 func decodeStrictJSON(r *http.Request, dst interface{}) error {
 	defer r.Body.Close()
@@ -1298,5 +1324,8 @@ func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 }
 
 func (h *Handler) writeError(w http.ResponseWriter, status int, msg string) {
+	if h.opsSvc != nil {
+		h.opsSvc.RecordHTTPError(status, msg)
+	}
 	writeJSON(w, status, map[string]string{"error": msg})
 }

@@ -168,6 +168,23 @@ func (s *RoomService) GetRoom(ctx context.Context, code string) (*domain.Room, e
 	return &cp, nil
 }
 
+func (s *RoomService) ListAll(ctx context.Context) ([]*domain.Room, error) {
+	rooms, err := s.repo.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*domain.Room, 0, len(rooms))
+	for _, room := range rooms {
+		if room == nil {
+			continue
+		}
+		cp := *room
+		cp.PasswordHash = ""
+		out = append(out, &cp)
+	}
+	return out, nil
+}
+
 func (s *RoomService) ListRooms(ctx context.Context) ([]*domain.Room, error) {
 	rooms, err := s.repo.List(ctx)
 	if err != nil {

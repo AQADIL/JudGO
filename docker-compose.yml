@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  judgo-api:
+    build: .
+    container_name: judgo-app-sre
+    expose:
+      - "8080"
+    env_file:
+      - .env
+    volumes:
+      - ./config:/app/config
+  judgo-proxy:
+    image: nginx:alpine
+    container_name: judgo-nginx-sre
+    ports:
+      - "8888:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./frontend/dist:/usr/share/nginx/html 
+    depends_on:
+      - judgo-api

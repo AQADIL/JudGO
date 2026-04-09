@@ -1,8 +1,9 @@
 import { auth } from '../lib/firebase'
 
-const API_BASE =
-  import.meta.env.VITE_API_BASE ||
-  `${window.location.protocol}//${window.location.hostname}:8080`
+const LOCAL_API_BASE = `${window.location.protocol}//${window.location.hostname}:8080`
+const CONFIGURED_API_BASE = String(import.meta.env.VITE_API_BASE || '').trim()
+const API_BASE = CONFIGURED_API_BASE || LOCAL_API_BASE
+const SHOULD_TRY_LOCAL_FALLBACK = import.meta.env.DEV && API_BASE !== LOCAL_API_BASE
 
 function joinUrl(base, path) {
   const b = String(base || '').replace(/\/+$/, '')
@@ -18,6 +19,27 @@ async function getToken() {
   return user.getIdToken()
 }
 
+async function doFetch(base, path, init, headers) {
+  const res = await fetch(joinUrl(base, path), {
+    ...init,
+    headers,
+  })
+
+  if (res.status === 401) {
+    window.location.assign('/signin')
+    throw new Error('Unauthorized')
+  }
+
+  return res
+}
+
+function shouldRetryLocally(error) {
+  if (!SHOULD_TRY_LOCAL_FALLBACK) return false
+  if (error.name === 'TypeError' && String(error.message).includes('Failed to fetch')) return true
+  if (error instanceof Error && String(error.message).includes('NetworkError')) return true
+  return false
+}
+
 export async function apiFetch(path, init = {}) {
   const headers = new Headers(init?.headers || {})
 
@@ -31,14 +53,12 @@ export async function apiFetch(path, init = {}) {
     headers.set('Content-Type', 'application/json')
   }
 
-  const res = await fetch(joinUrl(API_BASE, path), {
-    ...init,
-    headers,
-  })
-
-  if (res.status === 401) {
-    window.location.assign('/signin')
-    throw new Error('Unauthorized')
+  let res
+  try {
+    res = await doFetch(API_BASE, path, init, headers)
+  } catch (error) {
+    if (!shouldRetryLocally(error)) throw error
+    res = await doFetch(LOCAL_API_BASE, path, init, headers)
   }
 
   const text = await res.text()
@@ -73,6 +93,10 @@ export function dashboardStats() {
 
 export function adminUsers() {
   return apiFetch('/admin/users', { method: 'GET' })
+}
+
+export function adminOpsMetrics() {
+  return apiFetch('/admin/ops/metrics', { method: 'GET' })
 }
 
 export function adminProblems() {

@@ -13,10 +13,12 @@ import (
 	"github.com/AQADIL/JudGO/internal/service"
 	"github.com/AQADIL/JudGO/internal/transport/rest"
 	firebaseClient "github.com/AQADIL/JudGO/pkg/client/firebase"
+	"github.com/joho/godotenv"
 )
 
 func main() {
 	printBanner()
+	_ = godotenv.Load()
 
 	log.Println("[INIT] Loading configuration...")
 	log.Println("[INIT] Connecting to Firebase RTDB...")
@@ -50,9 +52,10 @@ func main() {
 	roomService := service.NewRoomService(roomRepo)
 	problemService := service.NewProblemService(problemRepo)
 	judgeService := service.NewJudgeService(problemService)
+	opsService := service.NewOpsService(userRepo, practiceRepo, roomService, problemService, judgeService)
 	roomGameService := service.NewRoomGameService(roomGameRepo, problemService, judgeService)
 	authService := service.NewAuthService(userRepo)
-	handler := rest.NewHandler(matchService, roomService, roomGameService, problemService, judgeService, authService, fbAuth, userRepo, practiceRepo)
+	handler := rest.NewHandler(matchService, roomService, roomGameService, problemService, judgeService, opsService, authService, fbAuth, userRepo, practiceRepo)
 	rest.RegisterRoutes(http.DefaultServeMux, handler)
 
 	port := "8080"
