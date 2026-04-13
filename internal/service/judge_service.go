@@ -61,9 +61,10 @@ type JudgeMetricsSnapshot struct {
 }
 
 type JudgeService struct {
-	problems *ProblemService
-	devMode  bool
-	metrics  judgeMetrics
+	problems   *ProblemService
+	devMode    bool
+	metrics    judgeMetrics
+	goCacheDir string
 }
 
 type judgeMetrics struct {
@@ -85,7 +86,42 @@ type judgeMetrics struct {
 func NewJudgeService(problems *ProblemService) *JudgeService {
 	dev := strings.EqualFold(strings.TrimSpace(os.Getenv("JUDGE_DEV")), "1") ||
 		strings.EqualFold(strings.TrimSpace(os.Getenv("JUDGE_DEV")), "true")
-	return &JudgeService{problems: problems, devMode: dev}
+
+	cacheDir, _ := os.MkdirTemp("", "judgo-gocache-*")
+	if cacheDir == "" {
+		cacheDir = filepath.Join(os.TempDir(), "judgo-gocache")
+		_ = os.MkdirAll(cacheDir, 0755)
+	}
+
+	svc := &JudgeService{problems: problems, devMode: dev, goCacheDir: cacheDir}
+	if dev {
+		go svc.warmGoCache()
+	}
+	return svc
+}
+
+func (s *JudgeService) warmGoCache() {
+	dir, err := os.MkdirTemp("", "judgo-warmup-*")
+	if err != nil {
+		return
+	}
+	defer os.RemoveAll(dir)
+
+	_ = os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module warmup\ngo 1.21\n"), 0644)
+	_ = os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\nimport \"fmt\"\nfunc main(){fmt.Println(0)}\n"), 0644)
+
+	binName := "warmup"
+	if runtime.GOOS == "windows" {
+		binName += ".exe"
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "go", "build", "-o", binName, "main.go")
+	cmd.Dir = dir
+	cmd.Env = s.goBuildEnv()
+	_ = cmd.Run()
 }
 
 func normalizeOutput(s string) string {
@@ -242,6 +278,13 @@ func (s *JudgeService) Judge(ctx context.Context, problemID string, lang JudgeLa
 	return res, nil
 }
 
+func (s *JudgeService) goBuildEnv() []string {
+	env := os.Environ()
+	env = append(env, "GOCACHE="+s.goCacheDir)
+	env = append(env, "GOFLAGS=-trimpath")
+	return env
+}
+
 func (s *JudgeService) buildGoBinary(ctx context.Context, workDir string, lang JudgeLanguage, timeout time.Duration) (string, time.Duration, error) {
 	startedAt := time.Now()
 	if lang != JudgeLanguageGo {
@@ -254,12 +297,15 @@ func (s *JudgeService) buildGoBinary(ctx context.Context, workDir string, lang J
 	}
 	binPath := filepath.Join(workDir, binName)
 
-	buildTimeout := 10 * time.Second
+	// write go.mod so the toolchain skips module discovery
+	_ = os.WriteFile(filepath.Join(workDir, "go.mod"), []byte("module submission\ngo 1.21\n"), 0644)
+
+	buildTimeout := 30 * time.Second
 	if timeout > 0 {
 		// give build more room than per-testcase timeout
 		buildTimeout = timeout * 5
-		if buildTimeout < 10*time.Second {
-			buildTimeout = 10 * time.Second
+		if buildTimeout < 30*time.Second {
+			buildTimeout = 30 * time.Second
 		}
 	}
 
@@ -268,6 +314,7 @@ func (s *JudgeService) buildGoBinary(ctx context.Context, workDir string, lang J
 
 	cmd := exec.CommandContext(bctx, "go", "build", "-o", binName, "main.go")
 	cmd.Dir = workDir
+	cmd.Env = s.goBuildEnv()
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		if bctx.Err() == context.DeadlineExceeded {
