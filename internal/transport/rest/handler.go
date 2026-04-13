@@ -120,6 +120,50 @@ type dailyCount struct {
 	Count int    `json:"count"`
 }
 
+type opsResponseWriter struct {
+	http.ResponseWriter
+	status      int
+	wroteHeader bool
+}
+
+func (w *opsResponseWriter) WriteHeader(status int) {
+	if w.wroteHeader {
+		return
+	}
+	w.status = status
+	w.wroteHeader = true
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *opsResponseWriter) Write(body []byte) (int, error) {
+	if !w.wroteHeader {
+		w.WriteHeader(http.StatusOK)
+	}
+	return w.ResponseWriter.Write(body)
+}
+
+func (w *opsResponseWriter) Status() int {
+	if w.status == 0 {
+		return http.StatusOK
+	}
+	return w.status
+}
+
+func (h *Handler) Instrument(next http.Handler) http.Handler {
+	if h == nil || h.opsSvc == nil {
+		return next
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		started := time.Now()
+		recorder := &opsResponseWriter{ResponseWriter: w}
+		next.ServeHTTP(recorder, r)
+		if r.Method == http.MethodOptions {
+			return
+		}
+		h.opsSvc.RecordHTTPRequest(r.URL.Path, recorder.Status(), time.Since(started))
+	})
+}
+
 func (h *Handler) FirebaseAuthRequired(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !h.handleCORS(w, r) {
@@ -1066,6 +1110,31 @@ func (h *Handler) HandleNotFound(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.writeError(w, http.StatusNotFound, "not found")
+}
+
+func (h *Handler) HandleHealthz(w http.ResponseWriter, r *http.Request) {
+	if !h.handleCORS(w, r) {
+		return
+	}
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	health := service.OpsHealthSnapshot{
+		Alive:     true,
+		Ready:     true,
+		Status:    "ok",
+		Message:   "Backend process is accepting requests.",
+		CheckedAt: time.Now().UTC(),
+	}
+	if h.opsSvc != nil {
+		health = h.opsSvc.HealthSnapshot(r.Context())
+	}
+	status := http.StatusOK
+	if !health.Ready {
+		status = http.StatusServiceUnavailable
+	}
+	writeJSON(w, status, health)
 }
 
 func (h *Handler) AuthRequired(next http.HandlerFunc) http.HandlerFunc {

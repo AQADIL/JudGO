@@ -81,12 +81,58 @@ type OpsSecuritySnapshot struct {
 	InvalidPasswordTotal int64 `json:"invalidPasswordTotal"`
 }
 
+type OpsHTTPWindowSnapshot struct {
+	WindowSec          int     `json:"windowSec"`
+	TotalRequests      int64   `json:"totalRequests"`
+	Status2xx          int64   `json:"status2xx"`
+	Status3xx          int64   `json:"status3xx"`
+	Status4xx          int64   `json:"status4xx"`
+	Status5xx          int64   `json:"status5xx"`
+	RequestRatePerMin  float64 `json:"requestRatePerMin"`
+	RedirectRatePct    float64 `json:"redirectRatePct"`
+	ClientErrorRatePct float64 `json:"clientErrorRatePct"`
+	ServerErrorRatePct float64 `json:"serverErrorRatePct"`
+	LatencyAvgMs       float64 `json:"latencyAvgMs"`
+	LatencyP95Ms       float64 `json:"latencyP95Ms"`
+}
+
+type OpsHTTPSnapshot struct {
+	TotalRequests  int64                 `json:"totalRequests"`
+	Status2xxTotal int64                 `json:"status2xxTotal"`
+	Status3xxTotal int64                 `json:"status3xxTotal"`
+	Status4xxTotal int64                 `json:"status4xxTotal"`
+	Status5xxTotal int64                 `json:"status5xxTotal"`
+	Last30Sec      OpsHTTPWindowSnapshot `json:"last30Sec"`
+	Last120Sec     OpsHTTPWindowSnapshot `json:"last120Sec"`
+}
+
+type OpsHealthSnapshot struct {
+	Alive     bool      `json:"alive"`
+	Ready     bool      `json:"ready"`
+	Status    string    `json:"status"`
+	Message   string    `json:"message"`
+	CheckedAt time.Time `json:"checkedAt"`
+}
+
+type OpsAlert struct {
+	ID       string `json:"id"`
+	Severity string `json:"severity"`
+	Signal   string `json:"signal"`
+	Title    string `json:"title"`
+	Detail   string `json:"detail"`
+	Note     string `json:"note"`
+	Runbook  string `json:"runbook"`
+}
+
 type OpsSnapshot struct {
 	GeneratedAt time.Time            `json:"generatedAt"`
 	System      OpsSystemSnapshot    `json:"system"`
 	Platform    OpsPlatformSnapshot  `json:"platform"`
 	Judge       JudgeMetricsSnapshot `json:"judge"`
 	Security    OpsSecuritySnapshot  `json:"security"`
+	HTTP        OpsHTTPSnapshot      `json:"http"`
+	Health      OpsHealthSnapshot    `json:"health"`
+	Alerts      []OpsAlert           `json:"alerts"`
 }
 
 type cpuCounters struct {
@@ -94,6 +140,12 @@ type cpuCounters struct {
 	idle  uint64
 	proc  uint64
 	valid bool
+}
+
+type httpObservation struct {
+	at         time.Time
+	status     int
+	durationMs float64
 }
 
 type OpsService struct {
@@ -113,6 +165,13 @@ type OpsService struct {
 	unauthorizedTotal    int64
 	forbiddenTotal       int64
 	invalidPasswordTotal int64
+	totalRequests        int64
+	status2xxTotal       int64
+	status3xxTotal       int64
+	status4xxTotal       int64
+	status5xxTotal       int64
+	httpMu               sync.Mutex
+	httpObservations     []httpObservation
 }
 
 func NewOpsService(userRepo firebaseRepo.UserRepository, practiceRepo firebaseRepo.PracticeRepository, roomSvc *RoomService, problemSvc *ProblemService, judgeSvc *JudgeService) *OpsService {
@@ -132,6 +191,66 @@ func (s *OpsService) RecordHTTPError(status int, msg string) {
 	}
 }
 
+func (s *OpsService) RecordHTTPRequest(path string, status int, duration time.Duration) {
+	if strings.TrimSpace(path) == "/healthz" {
+		return
+	}
+	if status < 100 {
+		status = 200
+	}
+	atomic.AddInt64(&s.totalRequests, 1)
+	switch {
+	case status >= 200 && status < 300:
+		atomic.AddInt64(&s.status2xxTotal, 1)
+	case status >= 300 && status < 400:
+		atomic.AddInt64(&s.status3xxTotal, 1)
+	case status >= 400 && status < 500:
+		atomic.AddInt64(&s.status4xxTotal, 1)
+	case status >= 500:
+		atomic.AddInt64(&s.status5xxTotal, 1)
+	}
+	now := time.Now().UTC()
+	cutoff := now.Add(-10 * time.Minute)
+	observation := httpObservation{at: now, status: status, durationMs: float64(duration) / float64(time.Millisecond)}
+	s.httpMu.Lock()
+	s.httpObservations = append(s.httpObservations, observation)
+	trimmed := s.httpObservations[:0]
+	for _, item := range s.httpObservations {
+		if item.at.Before(cutoff) {
+			continue
+		}
+		trimmed = append(trimmed, item)
+	}
+	if len(trimmed) > 4096 {
+		trimmed = append([]httpObservation(nil), trimmed[len(trimmed)-4096:]...)
+	} else {
+		trimmed = append([]httpObservation(nil), trimmed...)
+	}
+	s.httpObservations = trimmed
+	s.httpMu.Unlock()
+}
+
+func (s *OpsService) HealthSnapshot(ctx context.Context) OpsHealthSnapshot {
+	health := OpsHealthSnapshot{
+		Alive:     true,
+		Ready:     true,
+		Status:    "ok",
+		Message:   "Core backend dependencies responded within the health probe window.",
+		CheckedAt: time.Now().UTC(),
+	}
+	if s.userRepo == nil {
+		return health
+	}
+	checkCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	if _, err := s.userRepo.Count(checkCtx); err != nil {
+		health.Ready = false
+		health.Status = "critical"
+		health.Message = fmt.Sprintf("Firebase health probe failed: %v", err)
+	}
+	return health
+}
+
 func (s *OpsService) Snapshot(ctx context.Context) (*OpsSnapshot, error) {
 	s.cacheMu.Lock()
 	if s.cached != nil && time.Since(s.cachedAt) < 3*time.Second {
@@ -142,14 +261,22 @@ func (s *OpsService) Snapshot(ctx context.Context) (*OpsSnapshot, error) {
 	s.cacheMu.Unlock()
 
 	system := s.collectSystem()
-	platform, err := s.collectPlatform(ctx)
+	platform := OpsPlatformSnapshot{}
+	health := s.HealthSnapshot(ctx)
+	platformSnapshot, err := s.collectPlatform(ctx)
 	if err != nil {
-		return nil, err
+		health.Ready = false
+		health.Status = "critical"
+		health.Message = fmt.Sprintf("%s Platform telemetry degraded: %v", strings.TrimSpace(health.Message), err)
+	} else {
+		platform = platformSnapshot
 	}
 	judge := JudgeMetricsSnapshot{}
 	if s.judgeSvc != nil {
 		judge = s.judgeSvc.MetricsSnapshot()
 	}
+	httpSnapshot := s.collectHTTP()
+	alerts := s.evaluateAlerts(system, judge, httpSnapshot, health)
 	snapshot := &OpsSnapshot{
 		GeneratedAt: time.Now().UTC(),
 		System:      system,
@@ -160,6 +287,9 @@ func (s *OpsService) Snapshot(ctx context.Context) (*OpsSnapshot, error) {
 			ForbiddenTotal:       atomic.LoadInt64(&s.forbiddenTotal),
 			InvalidPasswordTotal: atomic.LoadInt64(&s.invalidPasswordTotal),
 		},
+		HTTP:   httpSnapshot,
+		Health: health,
+		Alerts: alerts,
 	}
 
 	s.cacheMu.Lock()
@@ -382,6 +512,85 @@ func (s *OpsService) sampleCPUPercent() (float64, float64) {
 		processCPU = 0
 	}
 	return systemCPU, processCPU
+}
+
+func (s *OpsService) collectHTTP() OpsHTTPSnapshot {
+	now := time.Now().UTC()
+	s.httpMu.Lock()
+	observations := append([]httpObservation(nil), s.httpObservations...)
+	s.httpMu.Unlock()
+	return OpsHTTPSnapshot{
+		TotalRequests:  atomic.LoadInt64(&s.totalRequests),
+		Status2xxTotal: atomic.LoadInt64(&s.status2xxTotal),
+		Status3xxTotal: atomic.LoadInt64(&s.status3xxTotal),
+		Status4xxTotal: atomic.LoadInt64(&s.status4xxTotal),
+		Status5xxTotal: atomic.LoadInt64(&s.status5xxTotal),
+		Last30Sec:      makeHTTPWindow(observations, now.Add(-30*time.Second), 30),
+		Last120Sec:     makeHTTPWindow(observations, now.Add(-120*time.Second), 120),
+	}
+}
+
+func (s *OpsService) evaluateAlerts(system OpsSystemSnapshot, judge JudgeMetricsSnapshot, httpSnapshot OpsHTTPSnapshot, health OpsHealthSnapshot) []OpsAlert {
+	alerts := make([]OpsAlert, 0, 8)
+	memoryPressure := math.Max(system.ContainerMemoryUsedPct, system.SystemMemoryUsedPct)
+	if !health.Ready {
+		alerts = append(alerts, OpsAlert{ID: "backend-health-critical", Severity: "critical", Signal: "Errors", Title: "Backend health check is failing", Detail: health.Message, Note: "The admin dashboard can still render stale or partial telemetry while the platform dependency is degraded.", Runbook: "Runbook: hit /healthz directly, validate Firebase credentials and RTDB reachability, then roll only the failing backend tasks after connectivity is restored."})
+	}
+	if httpSnapshot.Last120Sec.TotalRequests >= 20 && httpSnapshot.Last120Sec.ServerErrorRatePct >= 5 {
+		alerts = append(alerts, OpsAlert{ID: "http-5xx-critical", Severity: "critical", Signal: "Errors", Title: "5xx error rate is sustained above the critical SRE threshold", Detail: fmt.Sprintf("HTTP 5xx rate is %.1f%% across %d requests in the last %ds.", httpSnapshot.Last120Sec.ServerErrorRatePct, httpSnapshot.Last120Sec.TotalRequests, httpSnapshot.Last120Sec.WindowSec), Note: "This matches an active failure pattern rather than simple saturation.", Runbook: "Runbook: isolate the failing route family, inspect backend logs and dependency timeouts, then halt the rollout or drain unhealthy tasks until 5xx falls under 5%."})
+	}
+	if memoryPressure >= 90 {
+		alerts = append(alerts, OpsAlert{ID: "memory-critical", Severity: "critical", Signal: "Saturation", Title: "Memory pressure is beyond the safe production headroom", Detail: fmt.Sprintf("Memory pressure is %.1f%%, which leaves almost no room before worker recycling or OOM behavior.", memoryPressure), Note: "Critical memory pressure tends to cascade into slower judge execution and API instability.", Runbook: "Runbook: inspect RSS versus Go heap, reduce hot traffic, and replace only the most memory-heavy replica if pressure does not fall."})
+	} else if memoryPressure >= 75 {
+		alerts = append(alerts, OpsAlert{ID: "memory-warning", Severity: "warning", Signal: "Saturation", Title: "Memory pressure is elevated", Detail: fmt.Sprintf("Memory usage is %.1f%%, above the warning threshold for steady-state operation.", memoryPressure), Note: "This is still serviceable but should be watched before the cluster loses headroom.", Runbook: "Runbook: compare container usage, process RSS, and judge concurrency, then defer noisy jobs or scale out before memory crosses 90%."})
+	}
+	if system.SystemCPUPercent >= 75 || system.Load1 >= math.Max(1, float64(system.CPUCores))*0.8 {
+		alerts = append(alerts, OpsAlert{ID: "cpu-warning", Severity: "warning", Signal: "Saturation", Title: "CPU saturation is approaching production limits", Detail: fmt.Sprintf("System CPU is %.1f%% with load1 at %.2f across %d cores.", system.SystemCPUPercent, system.Load1, system.CPUCores), Note: "Sustained CPU pressure usually shows up first as latency growth for judge and API responses.", Runbook: "Runbook: inspect active sandboxes, request rate, and background tasks, then rebalance traffic or scale backend replicas before user-facing latency jumps."})
+	}
+	if judge.Enabled && math.Max(judge.JudgeP95Ms, judge.CompileP95Ms) >= 800 {
+		alerts = append(alerts, OpsAlert{ID: "judge-latency-warning", Severity: "warning", Signal: "Latency", Title: "Judge latency is above the operator warning threshold", Detail: fmt.Sprintf("Compile p95 is %.0f ms and judge p95 is %.0f ms.", judge.CompileP95Ms, judge.JudgeP95Ms), Note: "Latency is high but the system is still operating; this is the point to intervene before contestants feel outright failure.", Runbook: "Runbook: inspect compile-heavy submissions, sandbox concurrency, and CPU pressure, then scale judge workers or throttle noisy load."})
+	}
+	if httpSnapshot.Last30Sec.TotalRequests >= 10 && httpSnapshot.Last30Sec.ClientErrorRatePct >= 20 {
+		alerts = append(alerts, OpsAlert{ID: "http-4xx-warning", Severity: "warning", Signal: "Errors", Title: "Client-side error rate spiked in the latest traffic window", Detail: fmt.Sprintf("HTTP 4xx rate is %.1f%% across %d requests in the last %ds.", httpSnapshot.Last30Sec.ClientErrorRatePct, httpSnapshot.Last30Sec.TotalRequests, httpSnapshot.Last30Sec.WindowSec), Note: "This often indicates auth drift, stale frontend assumptions, or abusive user input rather than backend failure.", Runbook: "Runbook: inspect 401/403/404 trends, confirm the frontend API base and auth freshness, and correlate with recent admin or room actions."})
+	}
+	if httpSnapshot.Last30Sec.TotalRequests >= 10 && httpSnapshot.Last30Sec.RedirectRatePct >= 10 {
+		alerts = append(alerts, OpsAlert{ID: "http-3xx-warning", Severity: "warning", Signal: "Traffic", Title: "Redirect churn is higher than expected", Detail: fmt.Sprintf("HTTP 3xx rate is %.1f%% across %d requests in the last %ds.", httpSnapshot.Last30Sec.RedirectRatePct, httpSnapshot.Last30Sec.TotalRequests, httpSnapshot.Last30Sec.WindowSec), Note: "A redirect spike can point to routing drift, unexpected canonicalization loops, or clients bouncing between entrypoints.", Runbook: "Runbook: inspect proxy rules, canonical URLs, and frontend routing so redirect loops do not waste request budget."})
+	}
+	if httpSnapshot.Last30Sec.TotalRequests >= 10 && httpSnapshot.Last30Sec.LatencyP95Ms >= 1000 {
+		alerts = append(alerts, OpsAlert{ID: "http-latency-warning", Severity: "warning", Signal: "Latency", Title: "API latency crossed the warning band", Detail: fmt.Sprintf("HTTP latency p95 is %.0f ms in the last %ds window.", httpSnapshot.Last30Sec.LatencyP95Ms, httpSnapshot.Last30Sec.WindowSec), Note: "This is the Golden Signals latency view for the API layer itself, separate from judge latency.", Runbook: "Runbook: inspect recent request volume, saturation, and backend dependencies, then compare API latency with judge and Firebase health before rolling changes."})
+	}
+	return alerts
+}
+
+func makeHTTPWindow(observations []httpObservation, since time.Time, windowSec int) OpsHTTPWindowSnapshot {
+	window := OpsHTTPWindowSnapshot{WindowSec: windowSec}
+	latencies := make([]float64, 0, len(observations))
+	for _, observation := range observations {
+		if observation.at.Before(since) {
+			continue
+		}
+		window.TotalRequests++
+		latencies = append(latencies, observation.durationMs)
+		switch {
+		case observation.status >= 200 && observation.status < 300:
+			window.Status2xx++
+		case observation.status >= 300 && observation.status < 400:
+			window.Status3xx++
+		case observation.status >= 400 && observation.status < 500:
+			window.Status4xx++
+		case observation.status >= 500:
+			window.Status5xx++
+		}
+	}
+	if window.TotalRequests > 0 {
+		window.RequestRatePerMin = round2(float64(window.TotalRequests) / float64(windowSec) * 60)
+		window.RedirectRatePct = round2(float64(window.Status3xx) / float64(window.TotalRequests) * 100)
+		window.ClientErrorRatePct = round2(float64(window.Status4xx) / float64(window.TotalRequests) * 100)
+		window.ServerErrorRatePct = round2(float64(window.Status5xx) / float64(window.TotalRequests) * 100)
+	}
+	window.LatencyAvgMs = round2(averageFloat64(latencies))
+	window.LatencyP95Ms = round2(computePercentile(latencies, 0.95))
+	return window
 }
 
 func makeDailySeries(items map[string]int, days int) []OpsDailyCount {

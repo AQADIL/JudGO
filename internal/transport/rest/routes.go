@@ -3,6 +3,7 @@ package rest
 import "net/http"
 
 func RegisterRoutes(mux *http.ServeMux, h *Handler) {
+	mux.HandleFunc("/healthz", h.HandleHealthz)
 	mux.HandleFunc("/profile/init", h.FirebaseAuthRequired(h.HandleProfileInit))
 	mux.HandleFunc("/profile", h.FirebaseAuthRequired(h.HandleProfileUpdate))
 	mux.HandleFunc("/me", h.FirebaseAuthRequired(h.HandleMeFirebase))

@@ -56,18 +56,19 @@ func main() {
 	roomGameService := service.NewRoomGameService(roomGameRepo, problemService, judgeService)
 	authService := service.NewAuthService(userRepo)
 	handler := rest.NewHandler(matchService, roomService, roomGameService, problemService, judgeService, opsService, authService, fbAuth, userRepo, practiceRepo)
-	rest.RegisterRoutes(http.DefaultServeMux, handler)
+	mux := http.NewServeMux()
+	rest.RegisterRoutes(mux, handler)
+	mux.HandleFunc("/{$}", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"status":"alive","project":"JudGO","time":"` + time.Now().UTC().Format(time.RFC3339Nano) + `"}`))
+	})
+	mux.HandleFunc("/", handler.HandleNotFound)
 
 	port := "8080"
 	if envPort := os.Getenv("PORT"); envPort != "" {
 		port = envPort
 	}
-
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status": "alive", "project": "JudGO", "time": "` + time.Now().String() + `"}`))
-	})
 
 	log.Printf("[READY] JudGO Server is running on http://localhost:%s\n", port)
 
@@ -77,7 +78,7 @@ func main() {
 	} else {
 		addr = "0.0.0.0:" + port
 	}
-	if err := http.ListenAndServe(addr, nil); err != nil {
+	if err := http.ListenAndServe(addr, handler.Instrument(mux)); err != nil {
 		log.Fatalf("[ERROR] Server failed to start: %v", err)
 	}
 }
