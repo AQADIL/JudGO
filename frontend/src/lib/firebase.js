@@ -9,15 +9,24 @@ import {
   signOut,
 } from 'firebase/auth'
 
+const getEnv = (key, { optional = false } = {}) => {
+  const raw = import.meta.env?.[key]
+  const value = typeof raw === 'string' ? raw.trim() : ''
+  if (!value && !optional) {
+    throw new Error(`Missing Firebase config environment variable: ${key}`)
+  }
+  return value || undefined
+}
+
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  databaseURL: import.meta.env.VITE_FIREBASE_DATABASE_URL,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID,
-  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID,
+  apiKey: getEnv('VITE_FIREBASE_API_KEY'),
+  authDomain: getEnv('VITE_FIREBASE_AUTH_DOMAIN'),
+  databaseURL: getEnv('VITE_FIREBASE_DATABASE_URL'),
+  projectId: getEnv('VITE_FIREBASE_PROJECT_ID'),
+  storageBucket: getEnv('VITE_FIREBASE_STORAGE_BUCKET'),
+  messagingSenderId: getEnv('VITE_FIREBASE_MESSAGING_SENDER_ID'),
+  appId: getEnv('VITE_FIREBASE_APP_ID'),
+  measurementId: getEnv('VITE_FIREBASE_MEASUREMENT_ID', { optional: true }),
 }
 
 export const firebaseApp = initializeApp(firebaseConfig)
