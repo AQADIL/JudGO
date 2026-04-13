@@ -10,14 +10,14 @@ import {
 } from 'firebase/auth'
 
 const firebaseConfig = {
-  apiKey: 'AIzaSyA0QbsnkTNbYyFsxwxgAdDXdhLT22Ps3Ys',
-  authDomain: 'judgo-2726f.firebaseapp.com',
-  databaseURL: 'https://judgo-2726f-default-rtdb.europe-west1.firebasedatabase.app',
-  projectId: 'judgo-2726f',
-  storageBucket: 'judgo-2726f.firebasestorage.app',
-  messagingSenderId: '970672447283',
-  appId: '1:970672447283:web:df10946e8c27f391a6e846',
-  measurementId: 'G-SEGP03PV42',
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  databaseURL: import.meta.env.VITE_FIREBASE_DATABASE_URL,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID,
 }
 
 export const firebaseApp = initializeApp(firebaseConfig)
