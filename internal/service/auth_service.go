@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -30,7 +31,10 @@ type AuthService struct {
 func NewAuthService(repo UserRepository) *AuthService {
 	secret := os.Getenv("JWT_SECRET")
 	if secret == "" {
-		secret = "dev-secret-change-me"
+		panic("JWT_SECRET environment variable is required")
+	}
+	if len(secret) < 32 {
+		panic("JWT_SECRET must be at least 32 characters")
 	}
 
 	issuer := os.Getenv("JWT_ISSUER")
@@ -38,10 +42,17 @@ func NewAuthService(repo UserRepository) *AuthService {
 		issuer = "judgo"
 	}
 
+	ttl := 2 * time.Hour
+	if h := os.Getenv("JWT_TTL_HOURS"); h != "" {
+		if n, err := strconv.Atoi(h); err == nil && n > 0 && n <= 24 {
+			ttl = time.Duration(n) * time.Hour
+		}
+	}
+
 	return &AuthService{
 		repo:       repo,
 		jwtSecret:  []byte(secret),
-		tokenTTL:   24 * time.Hour,
+		tokenTTL:   ttl,
 		issuerName: issuer,
 	}
 }
