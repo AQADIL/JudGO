@@ -1,0 +1,138 @@
+---
+- name: JudGO Server Bootstrap
+  hosts: judgo_servers
+  become: true
+  gather_facts: true
+
+  vars:
+    judgo_repo: "https://github.com/AQADIL/JudGO.git"
+    judgo_dir: "/opt/judgo"
+    docker_compose_version: "v2.27.0"
+    k3s_version: "v1.29.4+k3s1"
+
+  tasks:
+
+    # ── System packages ──────────────────────────────────────
+    - name: Update apt cache
+      apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Install base packages
+      apt:
+        name:
+          - curl
+          - ca-certificates
+          - gnupg
+          - lsb-release
+          - git
+          - htop
+          - unzip
+        state: present
+
+    # ── Docker ───────────────────────────────────────────────
+    - name: Add Docker GPG key
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+
+    - name: Add Docker repository
+      apt_repository:
+        repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+        state: present
+
+    - name: Install Docker CE
+      apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-compose-plugin
+        state: present
+        update_cache: true
+
+    - name: Enable and start Docker
+      systemd:
+        name: docker
+        enabled: true
+        state: started
+
+    - name: Add ubuntu user to docker group
+      user:
+        name: ubuntu
+        groups: docker
+        append: true
+
+    # ── Docker Swarm init ────────────────────────────────────
+    - name: Check if Swarm is already initialized
+      command: docker info --format '{{ "{{" }}.Swarm.LocalNodeState{{ "}}" }}'
+      register: swarm_state
+      changed_when: false
+
+    - name: Initialize Docker Swarm
+      command: docker swarm init --advertise-addr {{ ansible_default_ipv4.address }}
+      when: swarm_state.stdout != "active"
+
+    # ── k3s (lightweight Kubernetes) ─────────────────────────
+    - name: Install k3s
+      shell: |
+        curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION={{ k3s_version }} sh -s - \
+          --disable traefik \
+          --write-kubeconfig-mode 644
+      args:
+        creates: /usr/local/bin/k3s
+
+    - name: Enable and start k3s
+      systemd:
+        name: k3s
+        enabled: true
+        state: started
+
+    - name: Wait for k3s to be ready
+      command: k3s kubectl get nodes
+      register: k3s_ready
+      retries: 10
+      delay: 5
+      until: k3s_ready.rc == 0
+
+    # ── Clone / update JudGO repo ────────────────────────────
+    - name: Clone JudGO repository
+      git:
+        repo: "{{ judgo_repo }}"
+        dest: "{{ judgo_dir }}"
+        version: main
+        force: false
+      become_user: ubuntu
+
+    # ── Docker Swarm secrets (idempotent) ────────────────────
+    - name: Create firebase_sa secret placeholder
+      shell: |
+        echo "PLACEHOLDER" | docker secret create firebase_sa - 2>/dev/null || true
+      changed_when: false
+
+    - name: Create pg_user secret
+      shell: |
+        echo "judgo_user" | docker secret create pg_user - 2>/dev/null || true
+      changed_when: false
+
+    - name: Create pg_password secret
+      shell: |
+        openssl rand -base64 32 | docker secret create pg_password - 2>/dev/null || true
+      changed_when: false
+
+    # ── Deploy Swarm stack ───────────────────────────────────
+    - name: Deploy JudGO Swarm stack
+      shell: |
+        cd {{ judgo_dir }}
+        docker stack deploy -c swarm/docker-stack.yml judgo --with-registry-auth
+      become_user: ubuntu
+      register: stack_deploy
+
+    - name: Show stack services
+      command: docker stack services judgo
+      register: stack_services
+      changed_when: false
+
+    - name: Print deployed services
+      debug:
+        var: stack_services.stdout_lines
